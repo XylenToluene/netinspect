@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netinspect — граф сетевых правил</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <h1>netinspect <span>· граф сетевых правил</span></h1>
+  <nav class="nav"><a href="./">Подключение</a><a href="graph.html" aria-current="page">Граф</a></nav>
+  <div class="meta">
+    <span>Источник: <b id="m-server">—</b></span>
+    <span>Сгенерировано: <b id="m-generated">—</b></span>
+    <span>Узлов: <b id="m-nodes">—</b></span>
+    <span>Связей: <b id="m-edges">—</b></span>
+    <span id="m-problems-wrap">Узлов с проблемами: <b id="m-problems">—</b></span>
+  </div>
+  <details class="probs" id="problems" hidden><summary>Проблемы</summary><ul id="problem-list"></ul></details>
+  <details class="warn" id="warnings" hidden><summary id="warnings-title">Предупреждения загрузки</summary><ul id="warning-list"></ul></details>
+  <p class="load-error" id="load-error" hidden></p>
+</header>
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Поиск по имени или хосту  ( / )" aria-label="Поиск">
+  <select id="ns" aria-label="Namespace"><option value="">Все namespace</option></select>
+  <div class="kinds" id="kinds" aria-label="Типы"></div>
+  <button type="button" class="btn" id="fit">Вписать</button>
+  <span class="legend"><span class="dash"></span> битая ссылка</span>
+  <span class="hint">колесо — зум, перетаскивание — сдвиг, клик — детали</span>
+</div>
+<main>
+  <div id="canvas-wrap">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Граф связей">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arrow-ok" d="M0,0 L10,5 L0,10 z"></path>
+        </marker>
+        <marker id="arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arrow-bad" d="M0,0 L10,5 L0,10 z"></path>
+        </marker>
+      </defs>
+      <g id="viewport"></g>
+    </svg>
+  </div>
+  <aside id="panel" aria-live="polite">
+    <div class="panel-head">
+      <div class="k" id="p-kind"></div>
+      <h2 id="p-name"></h2>
+      <div class="ns" id="p-ns"></div>
+      <button type="button" class="close" id="p-close" aria-label="Закрыть">×</button>
+    </div>
+    <div class="panel-body" id="p-body"></div>
+  </aside>
+</main>
+</body>
+</html>

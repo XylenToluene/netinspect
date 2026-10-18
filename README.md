@@ -27,7 +27,48 @@ Service без endpoints) подсвечиваются.
 python -m netinspect --help
 ```
 
-## Подключение к кластеру
+## Быстрый старт: веб-интерфейс
+
+Приложение запускается **без токена** — адрес кластера и токен вводятся в браузере.
+
+```bash
+# терминал 1 — бэкенд (слушает только 127.0.0.1:8081)
+python -m netinspect serve
+
+# терминал 2 — nginx: интерфейс + прокси /api/ на бэкенд
+nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf
+```
+
+Откройте http://127.0.0.1:8080/ и вставьте строку подключения. Её даёт консоль
+OpenShift: меню пользователя → «Copy login command». Подходит строка вида
+`oc login --token=sha256~… --server=https://api.<кластер>:6443`. Поля «Адрес API» и
+«Токен» заполнятся сами; их можно ввести и вручную. Нажмите «Проверить подключение».
+
+Приложение покажет:
+
+- версию кластера, пользователя и признак OpenShift;
+- найденные API Istio;
+- права на чтение (`list`) для каждого ресурса Istio и для Service / EndpointSlice / Route.
+
+Список ресурсов Istio не зашит в код. Это всё, что кластер отдаёт в группах
+`*.istio.io`: VirtualService, Gateway, DestinationRule, ServiceEntry, Sidecar,
+EnvoyFilter, WorkloadEntry, AuthorizationPolicy, PeerAuthentication,
+RequestAuthentication, Telemetry и т.д.
+
+Если появилась ошибка TLS, вставьте CA кластера в блок «TLS-сертификат кластера» (текстом или
+файлом). Получить CA: `oc get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}'`.
+
+**Куда уходит токен.** Браузер отправляет токен один раз, в `POST /api/connect`.
+Бэкенд держит его в памяти на время сессии: по умолчанию 8 часов бездействия,
+настраивается через `serve --session-ttl`. Браузер получает только случайный
+идентификатор сессии в `HttpOnly`-cookie. В браузере токен не сохраняется
+(ни localStorage, ни cookie). В ответы API и логи он не попадает. Кнопка
+«Отключиться» удаляет сессию на сервере. Перезапуск `serve` удаляет все сессии.
+
+> Вне `localhost` открывайте интерфейс только по HTTPS (заготовка в
+> `deploy/nginx/netinspect.conf`): иначе токен пойдёт по сети открытым текстом.
+
+## Подключение к кластеру из командной строки
 
 Нужны адрес API, личный токен и (желательно) CA-сертификат API.
 
@@ -75,7 +116,9 @@ python -m netinspect connect --server https://api.cluster.example:6443 --ca-file
 
 Выводит версию кластера (`/version`), пользователя (`user.openshift.io/users/~`,
 для «чистого» Kubernetes — `n/a`), найденные версии Istio API, признак OpenShift
-и таблицу прав на `list` для каждого типа ресурса (через `SelfSubjectAccessReview`).
+и таблицу прав на `list` (через `SelfSubjectAccessReview`). В таблицу попадают
+все ресурсы Istio, найденные в кластере, плюс Service, EndpointSlice и Route.
+То же самое показывает веб-интерфейс.
 
 ### get — список ресурсов одного типа
 
@@ -136,55 +179,57 @@ Gateway.
 
 ### Веб-интерфейс (nginx)
 
-`--web-dir DIR` выгружает в каталог статический интерфейс и данные:
+Состав:
 
-| Файл | Что это |
-|---|---|
-| `index.html` | разметка (исходник — `netinspect/ui/static/index.html`) |
-| `style.css` | стили (`netinspect/ui/static/style.css`) |
-| `app.js` | отрисовка графа на SVG, поиск, фильтры, панель (`netinspect/ui/static/app.js`) |
-| `theme.css` | CSS-переменные палитры, генерируется из `netinspect/ui/theme.py` |
-| `graph.json` | данные графа: узлы, связи, манифесты, метаданные отчёта |
+| Часть | Где | Что делает |
+|---|---|---|
+| статика | `netinspect/ui/static/` | `index.html` + `connect.js` — подключение к кластеру; `graph.html` + `app.js` — граф; `style.css`, `theme.css` |
+| бэкенд | `python -m netinspect serve` | JSON API на 127.0.0.1:8081: `/api/connect`, `/api/session`, `/api/disconnect`, `/api/health` |
+| nginx | `deploy/nginx/` | раздаёт статику и проксирует `/api/` на бэкенд |
 
-Каталог раздаёт nginx. Внешних ресурсов нет (CDN, шрифтов, библиотек), поэтому
-интерфейс работает в закрытой сети. Открыть `index.html` двойным кликом нельзя:
-браузер не даёт загрузить `graph.json` по `file://`, страница подскажет это.
+Браузер не может обращаться к API кластера напрямую: мешают CORS и CA кластера.
+Поэтому запросы к кластеру делает бэкенд.
+
+`theme.css` генерируется из `netinspect/ui/theme.py`, а в репозитории лежит его
+актуальная копия. Если поменяли палитру, обновите файл; тест
+`test_committed_theme_css_is_current` напомнит об этом.
+
+Граф пока строится командой `graph --web-dir DIR`. Она выгружает статику и
+`graph.json`; страница «Граф» читает `graph.json`. В локальном конфиге nginx
+`graph.json` берётся из `web/`:
+
+```bash
+python -m netinspect graph -A --web-dir web
+```
 
 **Системный nginx** (`deploy/nginx/netinspect.conf`, порт 8080, root `/var/www/netinspect`):
 
 ```bash
 sudo cp deploy/nginx/netinspect.conf deploy/nginx/netinspect-common.inc /etc/nginx/conf.d/
-sudo mkdir -p /var/www/netinspect && sudo chown "$USER" /var/www/netinspect
-python -m netinspect graph -A --web-dir /var/www/netinspect
+sudo mkdir -p /var/www/netinspect && sudo cp netinspect/ui/static/* /var/www/netinspect/
+python -m netinspect serve                 # лучше как systemd-сервис
 sudo nginx -t && sudo nginx -s reload
 ```
 
-Повторный запуск `graph --web-dir` обновляет данные. `graph.json` пишется
-атомарно, поэтому nginx не отдаст полузаписанный файл. Перезагружать nginx не
-нужно — достаточно обновить страницу. Обновление можно поставить в cron.
-
-**Без root** (`deploy/nginx/nginx-local.conf`, 127.0.0.1:8080, каталог `web/` в корне репозитория):
-
-```bash
-python -m netinspect graph -A --web-dir web
-nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf     # Ctrl+C — остановить
-```
+**Без root** (`deploy/nginx/nginx-local.conf`, 127.0.0.1:8080): см. «Быстрый старт».
 
 Общие правила вынесены в `deploy/nginx/netinspect-common.inc`:
 
 - строгий `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`): в
-  разметке нет inline-скриптов и стилей;
+  разметке нет inline-скриптов, стилей и обработчиков;
 - `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`;
-- только `GET`/`HEAD`;
-- скрытые файлы закрыты;
-- `Cache-Control: no-cache` — после новой выгрузки браузер сразу берёт свежие данные;
+- статика — только `GET`/`HEAD`, скрытые файлы закрыты, `Cache-Control: no-cache`;
+- `/api/` проксируется на `127.0.0.1:8081`, тело запроса ограничено 512 КБ;
 - gzip для JSON, CSS и JS.
+
+Бэкенд принимает POST только с `Content-Type: application/json` и заголовком
+`X-Netinspect: 1` (защита от CSRF); cookie сессии — `HttpOnly; SameSite=Strict`.
 
 > `graph.json` содержит манифесты ресурсов кластера (Secret не загружаются).
 > Публикуйте интерфейс только во внутренней сети или включите `auth_basic` —
 > заготовка есть в `netinspect.conf`.
 
-Возможности интерфейса:
+Возможности страницы «Граф»:
 
 - колонки по направлению трафика: Gateway/Route → VirtualService → DestinationRule → Service/External → EndpointSlice;
 - клик по узлу — панель с бейджами, проблемами, связанными узлами (кликабельны) и
@@ -224,7 +269,8 @@ OpenShift Route → Service (в т.ч. несуществующий alternateBac
 | endpointslices | discovery.k8s.io |
 | routes (OpenShift) | route.openshift.io |
 
-Плюс `create` на `selfsubjectaccessreviews` (есть у всех аутентифицированных
+Плюс чтение discovery API (`/apis`, `/api/v1` — роль `system:discovery`, есть у всех
+аутентифицированных) и `create` на `selfsubjectaccessreviews` (есть у всех аутентифицированных
 пользователей по умолчанию). Типы без прав не прерывают загрузку — они
 перечисляются в предупреждениях.
 
@@ -243,8 +289,18 @@ OpenShift Route → Service (в т.ч. несуществующий alternateBac
 python -m unittest discover -s tests
 ```
 
-Тесты не ходят в сеть: `ApiClient` проверяется подменой `urlopen`/opener, граф
-строится через `DirectorySource` на фикстурах.
+Тесты не ходят во внешнюю сеть. `ApiClient` проверяется подменой opener, граф
+строится через `DirectorySource` на фикстурах, а бэкенд — против
+`tests/fake_cluster.py`, локального HTTP-сервера на 127.0.0.1.
+
+Ручная проверка интерфейса без кластера:
+
+```bash
+python -m tests.fake_cluster 18443   # печатает адрес и тестовый токен
+python -m netinspect serve
+nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf
+# в интерфейсе: oc login --token=sha256~good-token-0001 --server=http://127.0.0.1:18443
+```
 
 Структура:
 
@@ -253,9 +309,11 @@ netinspect/
   core/   — подключение (config, client, errors), discovery, access, реестр типов,
             fetcher (ClusterSource / DirectorySource), модели, хосты
   graph/  — builder (связи), traverse (подграфы), render_text, render_web (выгрузка UI)
+  server/ — бэкенд веб-интерфейса: app.py (JSON API), sessions.py (сессии в памяти)
   ui/     — theme.py: палитра, единый источник цветов для UI и консоли;
-            static/: index.html, style.css, app.js
+            static/: index.html + connect.js, graph.html + app.js, style.css, theme.css
 deploy/nginx/ — конфигурация nginx для веб-интерфейса
+tests/fake_cluster.py — фейковый API кластера с Istio для тестов и ручной проверки
 ```
 
 `core` и `graph` не зависят от CLI и веб-интерфейса. Новый тип ресурса добавляется одной
@@ -274,10 +332,12 @@ deploy/nginx/ — конфигурация nginx для веб-интерфей�
 
 ## Дальше
 
-1. **Проверка дублей и конфликтов:** несколько VS на один хост и Gateway,
+1. **Граф в веб-интерфейсе по текущей сессии** — без `graph --web-dir`, с учётом всех
+   найденных ресурсов Istio (ServiceEntry, Sidecar, AuthorizationPolicy и др.).
+2. **Проверка дублей и конфликтов:** несколько VS на один хост и Gateway,
    несколько DR на один host, пересекающиеся Route. Граф и `hosts.py` уже дают
    всё нужное — проверки лягут отдельным модулем поверх `Graph`.
-2. **Каталог диагностических команд:** для узла с проблемой — готовые команды
+3. **Каталог диагностических команд:** для узла с проблемой — готовые команды
    `oc`/`istioctl` (`istioctl x describe`, `proxy-config routes`, `oc get endpointslices -l ...`)
    в консоли и в панели веб-интерфейса.
-3. Учёт `ServiceEntry`, `exportTo`, `delegate`, `Sidecar`.
+4. Учёт `exportTo`, `delegate` в связях графа.

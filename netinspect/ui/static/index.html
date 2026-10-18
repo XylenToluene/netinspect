@@ -3,56 +3,90 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>netinspect — граф сетевых правил</title>
+<title>netinspect — подключение к кластеру</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="style.css">
-<script src="app.js" defer></script>
+<script src="connect.js" defer></script>
 </head>
-<body>
+<body class="page-connect">
 <header class="top">
-  <h1>netinspect <span>· граф сетевых правил</span></h1>
-  <div class="meta">
-    <span>Источник: <b id="m-server">—</b></span>
-    <span>Сгенерировано: <b id="m-generated">—</b></span>
-    <span>Узлов: <b id="m-nodes">—</b></span>
-    <span>Связей: <b id="m-edges">—</b></span>
-    <span id="m-problems-wrap">Узлов с проблемами: <b id="m-problems">—</b></span>
+  <h1>netinspect <span>· подключение к кластеру</span></h1>
+  <nav class="nav"><a href="./" aria-current="page">Подключение</a><a href="graph.html">Граф</a></nav>
+  <div class="conn-status" id="conn-status" role="status">
+    <span class="dot"></span><span id="conn-status-text">Не подключено</span>
   </div>
-  <details class="probs" id="problems" hidden><summary>Проблемы</summary><ul id="problem-list"></ul></details>
-  <details class="warn" id="warnings" hidden><summary id="warnings-title">Предупреждения загрузки</summary><ul id="warning-list"></ul></details>
-  <p class="load-error" id="load-error" hidden></p>
 </header>
-<div class="toolbar">
-  <input type="search" id="search" placeholder="Поиск по имени или хосту  ( / )" aria-label="Поиск">
-  <select id="ns" aria-label="Namespace"><option value="">Все namespace</option></select>
-  <div class="kinds" id="kinds" aria-label="Типы"></div>
-  <button type="button" class="btn" id="fit">Вписать</button>
-  <span class="legend"><span class="dash"></span> битая ссылка</span>
-  <span class="hint">колесо — зум, перетаскивание — сдвиг, клик — детали</span>
-</div>
-<main>
-  <div id="canvas-wrap">
-    <svg id="canvas" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Граф связей">
-      <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path class="arrow-ok" d="M0,0 L10,5 L0,10 z"></path>
-        </marker>
-        <marker id="arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path class="arrow-bad" d="M0,0 L10,5 L0,10 z"></path>
-        </marker>
-      </defs>
-      <g id="viewport"></g>
-    </svg>
-  </div>
-  <aside id="panel" aria-live="polite">
-    <div class="panel-head">
-      <div class="k" id="p-kind"></div>
-      <h2 id="p-name"></h2>
-      <div class="ns" id="p-ns"></div>
-      <button type="button" class="close" id="p-close" aria-label="Закрыть">×</button>
+
+<main class="connect-layout">
+  <section class="card" aria-labelledby="form-title">
+    <h2 id="form-title">Параметры подключения</h2>
+    <form id="connect-form" novalidate autocomplete="off">
+      <label class="field" for="login-cmd">
+        <span class="label">Строка подключения</span>
+        <textarea id="login-cmd" rows="3" spellcheck="false"
+          placeholder="oc login --token=sha256~… --server=https://api.cluster.example:6443"></textarea>
+        <span class="hint">Консоль OpenShift → меню пользователя → «Copy login command». Поля ниже заполнятся сами.</span>
+        <span class="parse-result" id="parse-result" hidden></span>
+      </label>
+
+      <div class="divider"><span>или вручную</span></div>
+
+      <label class="field" for="server">
+        <span class="label">Адрес API <span class="req">*</span></span>
+        <input id="server" type="url" inputmode="url" spellcheck="false"
+          placeholder="https://api.cluster.example:6443">
+      </label>
+
+      <div class="field">
+        <label class="label" for="token">Токен <span class="req">*</span></label>
+        <span class="input-row">
+          <input id="token" type="password" spellcheck="false" autocomplete="off" placeholder="sha256~…">
+          <button type="button" class="btn" id="toggle-token" aria-pressed="false">Показать</button>
+        </span>
+        <span class="hint">Получить: <code>oc whoami -t</code></span>
+      </div>
+
+      <label class="field" for="namespace">
+        <span class="label">Namespace для проверки прав</span>
+        <input id="namespace" type="text" spellcheck="false" placeholder="все namespace">
+        <span class="hint">Пусто — права проверяются на уровне всего кластера.</span>
+      </label>
+
+      <details class="tls" id="tls">
+        <summary>TLS-сертификат кластера</summary>
+        <label class="field" for="ca-cert">
+          <span class="label">CA-сертификат (PEM)</span>
+          <textarea id="ca-cert" rows="4" spellcheck="false"
+            placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"></textarea>
+          <span class="hint">Не нужен, если CA кластера доверен на сервере netinspect.</span>
+        </label>
+        <label class="field file-field" for="ca-file">
+          <span class="label">или файл</span>
+          <input id="ca-file" type="file" accept=".crt,.pem,.cer,text/plain">
+        </label>
+        <label class="check" for="insecure">
+          <input id="insecure" type="checkbox">
+          <span>Не проверять сертификат (только для отладки)</span>
+        </label>
+        <p class="warn-text" id="insecure-warn" hidden>Соединение уязвимо для перехвата: токен может утечь.</p>
+      </details>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="connect-btn">Проверить подключение</button>
+        <button type="button" class="btn" id="disconnect-btn" hidden>Отключиться</button>
+      </div>
+      <p class="note">Токен уходит только на сервер netinspect, хранится в его памяти на время сессии
+        и не сохраняется в браузере.</p>
+    </form>
+  </section>
+
+  <section class="card result" id="result" aria-live="polite" aria-labelledby="result-title">
+    <h2 id="result-title">Результат проверки</h2>
+    <div id="result-body">
+      <p class="empty">Вставьте строку подключения или заполните поля и нажмите «Проверить подключение».</p>
     </div>
-    <div class="panel-body" id="p-body"></div>
-  </aside>
+  </section>
 </main>
 </body>
 </html>

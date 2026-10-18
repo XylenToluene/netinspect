@@ -9,10 +9,9 @@ import sys
 from typing import NoReturn, Sequence, TextIO
 
 from netinspect import __version__
-from netinspect.core.access import check_access, cluster_version, whoami
+from netinspect.core.access import connection_report
 from netinspect.core.client import ApiClient
 from netinspect.core.config import DEFAULT_TIMEOUT, ENV_CA, ENV_SERVER, ENV_TOKEN, build_config
-from netinspect.core.discovery import discover
 from netinspect.core.errors import NetinspectError
 from netinspect.core.fetcher import ClusterSource, DirectorySource, Source, default_kinds, yaml
 from netinspect.core.hosts import DEFAULT_DOMAIN, normalize, to_fqdn
@@ -81,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_connection_args(p)
     p.add_argument("-n", "--namespace", dest="namespace", metavar="NS", help="namespace для проверки прав")
 
+    p = sub.add_parser("serve", parents=[common], help="запустить бэкенд веб-интерфейса (за nginx)")
+    p.add_argument("--listen", default="127.0.0.1", metavar="HOST",
+                   help="адрес (по умолчанию 127.0.0.1 — доступ только через nginx на этой машине)")
+    p.add_argument("--port", type=int, default=8081, help="порт (по умолчанию 8081)")
+    p.add_argument("--session-ttl", type=float, default=480, metavar="MIN",
+                   help="время жизни неактивной сессии, минут (по умолчанию 480)")
+
     p = sub.add_parser("get", parents=[common], help="вывести ресурсы одного типа")
     p.add_argument("kind", metavar="KIND", help="тип: gw, vs, dr, svc, endpointslice, route или полное имя")
     _add_ns_args(p)
@@ -147,21 +153,23 @@ def _table(rows: list[list[str]], headers: list[str]) -> str:
 
 
 def cmd_connect(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    """Проверка подключения: версия, пользователь, права на типы реестра."""
+    """Проверка подключения: версия, пользователь, ресурсы Istio и права на list."""
     client = _client(args, err)
-    print(f"Сервер:       {client.server}", file=out)
-    print(f"Версия:       {cluster_version(client)}", file=out)
-    user = whoami(client)
-    print(f"Пользователь: {user or 'n/a'}", file=out)
-    info = discover(client)
-    print(f"Istio API:    {info.istio_version or 'не найден'}", file=out)
-    print(f"OpenShift:    {'да' if info.is_openshift else 'нет'}", file=out)
+    report = connection_report(client, args.namespace)
+    print(f"Сервер:       {report.server}", file=out)
+    print(f"Версия:       {report.version}", file=out)
+    print(f"Пользователь: {report.user or 'n/a'}", file=out)
+    print(f"Istio API:    {', '.join(report.istio_groups) or 'не найден'}", file=out)
+    print(f"OpenShift:    {'да' if report.openshift else 'нет'}", file=out)
     scope = args.namespace or "все namespace"
     print(f"\nПрава на list ({scope}):", file=out)
-    rows = []
-    for res in check_access(client, args.namespace):
-        rows.append([res.kind, res.resource, "да" if res.allowed else "нет", res.reason])
-    print(_table(rows, ["KIND", "RESOURCE", "МОЖНО ЧИТАТЬ", "ПРИЧИНА"]), file=out)
+    rows = [
+        [res.kind, res.group_version, "да" if acc.allowed else "нет", acc.reason]
+        for res, acc in report.resources
+    ]
+    print(_table(rows, ["KIND", "API", "МОЖНО ЧИТАТЬ", "ПРИЧИНА"]), file=out)
+    for warning in report.warnings:
+        print(f"предупреждение: {warning}", file=err)
     return EXIT_OK
 
 
@@ -281,7 +289,32 @@ def _setup_logging(verbose: int, err: TextIO) -> None:
     logger.propagate = False
 
 
-COMMANDS = {"connect": cmd_connect, "get": cmd_get, "graph": cmd_graph}
+def cmd_serve(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
+    """Запустить бэкенд веб-интерфейса. Токен вводится в браузере после запуска."""
+    from netinspect.server.app import is_loopback, make_server
+    from netinspect.server.sessions import SessionStore
+
+    if not is_loopback(args.listen):
+        print(
+            f"ВНИМАНИЕ: бэкенд слушает {args.listen} — токены пользователей пойдут по сети. "
+            "Держите его за nginx с HTTPS или слушайте 127.0.0.1",
+            file=err,
+        )
+    httpd = make_server(args.listen, args.port, SessionStore(ttl=args.session_ttl * 60))
+    host, port = httpd.server_address[:2]
+    print(f"netinspect API: http://{host}:{port}/api/ (Ctrl+C — остановить)", file=out)
+    print("Интерфейс открывайте через nginx, см. deploy/nginx", file=out)
+    out.flush()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("остановлено", file=out)
+    finally:
+        httpd.server_close()
+    return EXIT_OK
+
+
+COMMANDS = {"connect": cmd_connect, "get": cmd_get, "graph": cmd_graph, "serve": cmd_serve}
 
 
 def main(argv: Sequence[str] | None = None, out: TextIO | None = None, err: TextIO | None = None) -> int:
@@ -289,7 +322,7 @@ def main(argv: Sequence[str] | None = None, out: TextIO | None = None, err: Text
     out = out or sys.stdout
     err = err or sys.stderr
     args = build_parser().parse_args(argv)
-    _setup_logging(args.verbose, err)
+    _setup_logging(args.verbose + (1 if args.command == "serve" else 0), err)
     try:
         return COMMANDS[args.command](args, out, err)
     except NetinspectError as exc:

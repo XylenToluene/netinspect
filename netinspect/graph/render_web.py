@@ -3,9 +3,9 @@
 Каталог раздаётся nginx (см. ``deploy/nginx/netinspect.conf``)::
 
     <out_dir>/
-      index.html   — разметка (из netinspect/ui/static)
+      index.html   — страница подключения к кластеру (connect.js)
+      graph.html   — просмотр графа (app.js)
       style.css    — стили
-      app.js       — отрисовка графа на SVG
       theme.css    — CSS-переменные палитры, генерируется из ui/theme.py
       graph.json   — данные графа и метаданные отчёта
 """
@@ -25,7 +25,7 @@ from netinspect.graph.builder import KIND_COLUMN, node_sort_key
 from netinspect.ui import theme
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "static")
-STATIC_FILES = ("index.html", "style.css", "app.js")
+STATIC_FILES = ("index.html", "connect.js", "graph.html", "app.js", "style.css")
 DATA_FILE = "graph.json"
 THEME_FILE = "theme.css"
 

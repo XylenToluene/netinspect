@@ -57,6 +57,11 @@ class ApiClient:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             return ctx
+        if config.ca_data:
+            try:
+                return ssl.create_default_context(cadata=config.ca_data)
+            except (ssl.SSLError, ValueError) as exc:
+                raise TLSError(f"не удалось прочитать CA-сертификат (PEM): {exc}") from None
         return ssl.create_default_context(cafile=config.ca_file)
 
     # --- публичное API -------------------------------------------------

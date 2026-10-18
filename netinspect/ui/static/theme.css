@@ -1,0 +1,19 @@
+/* Сгенерировано netinspect из ui/theme.py — не редактировать вручную. */
+:root {
+  --bg: #F7F2EA;
+  --surface: #FFFDF9;
+  --blue-100: #E3EFF8;
+  --blue-300: #A9CCE3;
+  --blue-500: #6F9FC4;
+  --beige-200: #EFE4D3;
+  --beige-400: #D8C3A5;
+  --accent: #7B1E3A;
+  --accent-soft: #F3E1E6;
+  --text: #2F3A45;
+  --muted: #6B7680;
+  --danger: #7B1E3A;
+  --ok: #5E8C6A;
+  --white: #FFFFFF;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}

@@ -8,7 +8,7 @@ from unittest import mock
 
 from netinspect import cli
 from netinspect.core.model import Graph, Node, Resource
-from netinspect.graph.render_web import export_web
+from netinspect.graph.render_web import STATIC_DIR, export_web, theme_css
 from netinspect.graph.render_text import SEEN_MARK, render_summary, render_tree
 from netinspect.ui import theme
 from netinspect.ui.theme import Ansi, color_enabled
@@ -83,25 +83,30 @@ class WebExportTest(unittest.TestCase):
     def test_files(self) -> None:
         self.assertEqual(
             sorted(os.listdir(self.out)),
-            ["app.js", "graph.json", "index.html", "style.css", "theme.css"],
+            ["app.js", "connect.js", "graph.html", "graph.json", "index.html", "style.css", "theme.css"],
         )
-        self.assertEqual(len(self.written), 5)
+        self.assertEqual(len(self.written), 7)
 
-    def test_index_has_no_inline_code(self) -> None:
-        page = self.read("index.html")
-        # строгий CSP nginx: никаких inline-скриптов, стилей и style-атрибутов
-        self.assertNotRegex(page, r"<script(?![^>]*\bsrc=)[^>]*>")
-        self.assertNotIn("<style", page)
-        self.assertNotIn("style=", page)
-        for ref in ('href="theme.css"', 'href="style.css"', 'src="app.js"'):
-            self.assertIn(ref, page)
+    def test_pages_have_no_inline_code(self) -> None:
+        for name, script in (("index.html", "connect.js"), ("graph.html", "app.js")):
+            page = self.read(name)
+            # строгий CSP nginx: никаких inline-скриптов, стилей, style- и on*-атрибутов
+            self.assertNotRegex(page, r"<script(?![^>]*\bsrc=)[^>]*>", name)
+            self.assertNotIn("<style", page, name)
+            self.assertNotIn("style=", page, name)
+            self.assertNotRegex(page, r"\son[a-z]+=", name)
+            for ref in ('href="theme.css"', 'href="style.css"', f'src="{script}"'):
+                self.assertIn(ref, page, name)
 
     def test_no_external_urls(self) -> None:
-        for name in ("index.html", "style.css", "app.js", "theme.css"):
+        # namespace SVG и примеры адреса API в подсказках
+        allowed = {"http://www.w3.org/2000/svg", "https://api.cluster.example:6443", "https://api."}
+        for name in ("index.html", "graph.html", "style.css", "app.js", "connect.js", "theme.css"):
             text = self.read(name)
             self.assertNotIn("@import", text)
             urls = set(re.findall(r"https?://[^\s\"'<>)]+", text))
-            self.assertLessEqual(urls, {"http://www.w3.org/2000/svg"}, name)
+            self.assertLessEqual(urls, allowed, name)
+            self.assertNotRegex(text, r"(src|href)=\"(https?:)?//", name)
 
     def test_theme_css_from_palette(self) -> None:
         css = self.read("theme.css")
@@ -123,10 +128,21 @@ class WebExportTest(unittest.TestCase):
         self.assertEqual(data["styles"]["Gateway"]["fill"], "var(--blue-300)")
 
     def test_ui_does_not_use_innerhtml(self) -> None:
-        js = self.read("app.js")
-        self.assertNotIn("innerHTML", js)
-        self.assertNotIn("eval(", js)
-        self.assertIn("graph.json", js)
+        for name in ("app.js", "connect.js"):
+            js = self.read(name)
+            self.assertNotIn("innerHTML", js, name)
+            self.assertNotIn("eval(", js, name)
+        self.assertIn("graph.json", self.read("app.js"))
+        connect = self.read("connect.js")
+        self.assertIn("X-Netinspect", connect)
+        # токен не сохраняется в браузере
+        self.assertNotIn("localStorage", connect)
+        self.assertNotIn("sessionStorage", connect)
+        self.assertNotIn("document.cookie", connect)
+
+    def test_committed_theme_css_is_current(self) -> None:
+        with open(os.path.join(STATIC_DIR, "theme.css"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), theme_css(), "обновите netinspect/ui/static/theme.css из ui/theme.py")
 
     def test_reexport_overwrites(self) -> None:
         g = Graph()
@@ -153,12 +169,21 @@ class NginxConfigTest(unittest.TestCase):
         conf = self.read("netinspect-common.inc")
         self.assertIn("Content-Security-Policy", conf)
         self.assertIn("script-src 'self'", conf)
-        self.assertIn("location = /graph.json", conf)
         self.assertIn("deny all", conf)
+        self.assertIn("location /api/", conf)
+        self.assertIn("proxy_pass http://127.0.0.1:8081;", conf)
+        self.assertIn("limit_except GET", conf)
+        directives = "\n".join(line.split("#", 1)[0] for line in conf.splitlines())
+        self.assertNotIn("$request_body", directives)
 
     def test_includes(self) -> None:
-        self.assertIn("include conf.d/netinspect-common.inc;", self.read("netinspect.conf"))
-        self.assertIn("include netinspect-common.inc;", self.read("nginx-local.conf"))
+        system = self.read("netinspect.conf")
+        local = self.read("nginx-local.conf")
+        self.assertIn("include conf.d/netinspect-common.inc;", system)
+        self.assertIn("include netinspect-common.inc;", local)
+        self.assertIn("location = /graph.json", system)
+        self.assertIn("location = /graph.json", local)
+        self.assertIn("root netinspect/ui/static;", local)
 
 
 class CliTest(unittest.TestCase):

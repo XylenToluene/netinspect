@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Callable, Mapping
 
@@ -34,6 +35,8 @@ class ConnectionConfig:
     insecure: bool = False
     timeout: float = DEFAULT_TIMEOUT
     proxy: str | None = None
+    #: CA в формате PEM (текстом) — альтернатива ``ca_file``, используется веб-интерфейсом.
+    ca_data: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.server = self.server.strip().rstrip("/")
@@ -41,14 +44,23 @@ class ConnectionConfig:
             raise ConfigError("не задан адрес API: --server или NETINSPECT_SERVER")
         if not self.server.startswith(("https://", "http://")):
             self.server = "https://" + self.server
-        if not self.token or not self.token.strip():
+        parsed = urllib.parse.urlsplit(self.server)
+        if not parsed.hostname or any(ch.isspace() for ch in self.server) or parsed.query or parsed.fragment:
+            raise ConfigError(f"некорректный адрес API: {self.server!r}, ожидается https://api.cluster.example:6443")
+        token = (self.token or "").strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        if not token:
             raise ConfigError("пустой токен")
-        self.token = self.token.strip()
+        if any(ch.isspace() for ch in token):
+            raise ConfigError("токен не должен содержать пробелов и переводов строки")
+        self.token = token
 
     def __repr__(self) -> str:
         return (
             f"ConnectionConfig(server={self.server!r}, token={mask_token(self.token)!r}, "
-            f"ca_file={self.ca_file!r}, insecure={self.insecure!r}, "
+            f"ca_file={self.ca_file!r}, ca_data={'<pem>' if self.ca_data else None}, "
+            f"insecure={self.insecure!r}, "
             f"timeout={self.timeout!r}, proxy={self.proxy!r})"
         )
 
