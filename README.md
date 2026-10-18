@@ -9,7 +9,7 @@ Gateway → VirtualService → DestinationRule
 Route (OpenShift) → Service
 ```
 
-и показывает его деревом в консоли и в веб-интерфейсе, который раздаёт nginx. Битые ссылки
+и показывает его в веб-интерфейсе. Битые ссылки
 (несуществующий Gateway или Service, отсутствующий subset в DestinationRule,
 Service без endpoints) подсвечиваются.
 
@@ -172,7 +172,7 @@ python -m netinspect get dr --from-dir ./manifests -o yaml
 
 ```bash
 # весь граф по namespace
-python -m netinspect graph -n prod -n staging --web-dir /var/www/netinspect
+python -m netinspect graph -n prod -n staging
 
 # от хоста: все Gateway, VirtualService и Route, у которых совпадает хост (с учётом wildcard)
 python -m netinspect graph -A --host api.example.com
@@ -181,16 +181,12 @@ python -m netinspect graph -A --host api.example.com
 python -m netinspect graph -A --resource vs/prod/reviews
 ```
 
-Пример вывода:
+Граф в консоль не выводится. Команда строит его и выгружает в каталог (по
+умолчанию `web/`), а смотреть его нужно в веб-интерфейсе, на странице «Граф».
+В консоли печатается только итог:
 
 ```
-Gateway prod/public-gw  [*.example.com:443]  [tls SIMPLE]  [api.example.com:80]
-├── VirtualService prod/reviews  [api.example.com]  [mesh]
-│   ├── DestinationRule prod/reviews  [subset v1 ✓]  [subset v2 ✓]  (v1 ✓, v2 ✓)
-│   └── Service prod/reviews  [9080/TCP]  (v1 :9080 80%, v2 :9080 20%)
-│       └── EndpointSlice prod/reviews-abc12  [3 ready]
-└── VirtualService prod/ratings  [ratings.example.com]
-    └── DestinationRule prod/ratings  [subset v1 ✓]  [subset v3 ✗]  ⚠
+Граф выгружен в web: узлов 20, связей 20, с проблемами 4. Смотреть: python -m netinspect serve --graph-dir web → http://127.0.0.1:8081/graph.html
 ```
 
 Опции:
@@ -200,8 +196,7 @@ Gateway prod/public-gw  [*.example.com:443]  [tls SIMPLE]  [api.example.com:80]
 | `--host H` / `--resource KIND/NS/NAME` | точка входа; без неё — весь граф |
 | `-n NS` (несколько раз) / `-A` | namespace |
 | `--from-dir DIR` | читать манифесты из каталога вместо кластера |
-| `--web-dir DIR` | выгрузить веб-интерфейс для nginx (см. ниже) |
-| `--no-color` | без цветов (также `NO_COLOR=1` или вывод не в терминал) |
+| `--web-dir DIR` | куда выгрузить граф (по умолчанию `web`) |
 | `--cluster-domain D` | домен кластера, по умолчанию `cluster.local` |
 | `-v` / `-vv` | подробный / отладочный лог |
 
@@ -356,9 +351,9 @@ python -m netinspect serve           # http://127.0.0.1:8081/
 netinspect/
   core/   — подключение (config, client, errors), discovery, access, реестр типов,
             fetcher (ClusterSource / DirectorySource), модели, хосты
-  graph/  — builder (связи), traverse (подграфы), render_text, render_web (выгрузка UI)
+  graph/  — builder (связи), traverse (подграфы), render_web (выгрузка графа для UI)
   server/ — бэкенд веб-интерфейса: app.py (JSON API), sessions.py (сессии в памяти)
-  ui/     — theme.py: палитра, единый источник цветов для UI и консоли;
+  ui/     — theme.py: палитра, единый источник цветов интерфейса;
             static/: index.html + connect.js, graph.html + app.js, shell.js, theme-init.js,
             style.css, theme.css, fonts/ (Inter, JetBrains Mono — OFL 1.1)
 deploy/nginx/ — конфигурация nginx для веб-интерфейса
@@ -388,5 +383,5 @@ tests/fake_cluster.py — фейковый API кластера с Istio для 
    всё нужное — проверки лягут отдельным модулем поверх `Graph`.
 3. **Каталог диагностических команд:** для узла с проблемой — готовые команды
    `oc`/`istioctl` (`istioctl x describe`, `proxy-config routes`, `oc get endpointslices -l ...`)
-   в консоли и в панели веб-интерфейса.
+   в панели веб-интерфейса.
 4. Учёт `exportTo`, `delegate` в связях графа.

@@ -1,4 +1,4 @@
-"""Дизайн-токены netinspect — единый источник цветов и шрифтов для веб-интерфейса и консоли.
+"""Дизайн-токены netinspect — единый источник цветов и шрифтов веб-интерфейса.
 
 Принципы (по мотивам Radix Colors, Linear, Kiali):
 
@@ -15,9 +15,6 @@
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
-from typing import TextIO
 
 #: Светлая тема: CSS-токен (имя без ``--``) → значение.
 LIGHT: dict[str, str] = {
@@ -169,14 +166,6 @@ DEFAULT_NODE_STYLE: dict[str, str | bool] = {"color": "kind-eps", "soft": "kind-
 FONT_SANS = '"Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 FONT_MONO = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace'
 
-#: ANSI 256 цвета консоли — в тон веб-палитре (iris / teal / red).
-ANSI_NODE = 147     # заголовки узлов — светлый iris
-ANSI_BADGE = 116    # бейджи — мягкий cyan/teal
-ANSI_ERROR = 203    # ошибки и битые ссылки — красный
-ANSI_OK = 114       # успех — зелёный
-ANSI_MUTED = 245    # служебный текст
-
-
 def _block(selector: str, tokens: dict[str, str], scheme: str, extra: list[str] | None = None) -> str:
     lines = [f"  --{name}: {value};" for name, value in tokens.items()]
     lines.extend(extra or [])
@@ -223,47 +212,3 @@ def contrast_ratio(fg: str, bg: str) -> float:
 
     a, b = sorted((lum(fg), lum(bg)), reverse=True)
     return (a + 0.05) / (b + 0.05)
-
-
-def color_enabled(stream: TextIO, force_off: bool = False) -> bool:
-    """Решить, использовать ли ANSI-цвета для потока.
-
-    Цвета отключаются флагом, переменной ``NO_COLOR`` или если поток — не терминал.
-    """
-    if force_off or os.environ.get("NO_COLOR"):
-        return False
-    isatty = getattr(stream, "isatty", None)
-    return bool(isatty and isatty())
-
-
-@dataclass(frozen=True, slots=True)
-class Ansi:
-    """Раскраска текста ANSI 256; при ``enabled=False`` возвращает текст как есть."""
-
-    enabled: bool = True
-
-    def _wrap(self, code: int, text: str, bold: bool = False) -> str:
-        if not self.enabled:
-            return text
-        prefix = "\033[1;" if bold else "\033["
-        return f"{prefix}38;5;{code}m{text}\033[0m"
-
-    def node(self, text: str) -> str:
-        """Заголовок узла."""
-        return self._wrap(ANSI_NODE, text, bold=True)
-
-    def badge(self, text: str) -> str:
-        """Бейдж."""
-        return self._wrap(ANSI_BADGE, text)
-
-    def error(self, text: str) -> str:
-        """Ошибка / проблема."""
-        return self._wrap(ANSI_ERROR, text, bold=True)
-
-    def ok(self, text: str) -> str:
-        """Успех."""
-        return self._wrap(ANSI_OK, text)
-
-    def muted(self, text: str) -> str:
-        """Служебный текст."""
-        return self._wrap(ANSI_MUTED, text)

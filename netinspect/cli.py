@@ -19,9 +19,7 @@ from netinspect.core.model import Resource
 from netinspect.core.resources import resolve_kind
 from netinspect.graph.builder import build_graph
 from netinspect.graph.render_web import export_web
-from netinspect.graph.render_text import render_summary, render_tree
 from netinspect.graph.traverse import host_subgraph, parse_resource_ref, subgraph
-from netinspect.ui.theme import Ansi, color_enabled
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -96,15 +94,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cluster-domain", default=DEFAULT_DOMAIN, help="домен кластера (cluster.local)")
     _add_connection_args(p)
 
-    p = sub.add_parser("graph", parents=[common], help="построить граф связей")
+    p = sub.add_parser("graph", parents=[common], help="построить граф связей для веб-интерфейса")
     entry = p.add_mutually_exclusive_group()
     entry.add_argument("--host", help="точка входа: хост (Gateway, VirtualService, Route)")
     entry.add_argument("--resource", help="точка входа: KIND/NS/NAME, например vs/prod/reviews")
     _add_ns_args(p)
     p.add_argument("--from-dir", metavar="DIR", help="читать манифесты из каталога вместо кластера")
-    p.add_argument("--web-dir", metavar="DIR",
-                   help="выгрузить веб-интерфейс (index.html, style.css, app.js, graph.json) для nginx")
-    p.add_argument("--no-color", action="store_true", help="без ANSI-цветов")
+    p.add_argument("--web-dir", metavar="DIR", default="web",
+                   help="куда выгрузить граф для веб-интерфейса (graph.json и страницы), по умолчанию web")
     p.add_argument("--cluster-domain", default=DEFAULT_DOMAIN, help="домен кластера (cluster.local)")
     _add_connection_args(p)
     return parser
@@ -243,7 +240,7 @@ def cmd_get(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
 
 
 def cmd_graph(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    """Построить граф, вывести дерево и (опционально) выгрузить веб-интерфейс."""
+    """Построить граф и выгрузить его для страницы «Граф» веб-интерфейса."""
     source = _source(args, err)
     resources = source.load(default_kinds(), _namespaces(args))
     full = build_graph(resources, args.cluster_domain)
@@ -261,17 +258,17 @@ def cmd_graph(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     else:
         graph = full
 
-    ansi = Ansi(enabled=color_enabled(out, args.no_color))
-    if graph.nodes:
-        print(render_tree(graph, ansi), file=out)
-    else:
-        print("ресурсы не найдены", file=out)
-    print(render_summary(graph, source.warnings, ansi), file=out)
-
-    if args.web_dir:
-        export_web(graph, args.web_dir, server=source.description, warnings=source.warnings)
-        print(f"Веб-интерфейс: {args.web_dir} (раздайте каталог через nginx, см. deploy/nginx)", file=out)
-    return EXIT_PROBLEMS if graph.problem_nodes() else EXIT_OK
+    for warning in source.warnings:
+        print(f"предупреждение: {warning}", file=err)
+    export_web(graph, args.web_dir, server=source.description, warnings=source.warnings)
+    problems = len(graph.problem_nodes())
+    print(
+        f"Граф выгружен в {args.web_dir}: узлов {len(graph.nodes)}, связей {len(graph.edges)}, "
+        f"с проблемами {problems}. Смотреть: python -m netinspect serve --graph-dir {args.web_dir} "
+        "→ http://127.0.0.1:8081/graph.html",
+        file=out,
+    )
+    return EXIT_PROBLEMS if problems else EXIT_OK
 
 
 def _setup_logging(verbose: int, err: TextIO) -> None:

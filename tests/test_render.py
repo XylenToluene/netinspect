@@ -9,60 +9,8 @@ from unittest import mock
 from netinspect import cli
 from netinspect.core.model import Graph, Node, Resource
 from netinspect.graph.render_web import STATIC_DIR, export_web, theme_css
-from netinspect.graph.render_text import SEEN_MARK, render_summary, render_tree
 from netinspect.ui import theme
-from netinspect.ui.theme import Ansi, color_enabled
 from tests.test_builder import FIXTURES, load_fixture_graph
-
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-
-class TextRenderTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.g = load_fixture_graph()
-
-    def test_tree_plain(self) -> None:
-        text = render_tree(self.g, Ansi(enabled=False))
-        self.assertNotIn("\x1b[", text)
-        self.assertIn("Gateway prod/public-gw  [*.example.com:443]", text)
-        self.assertIn("└── VirtualService prod/legacy", text)
-        self.assertIn("⚠ Gateway prod/legacy-gw", text)
-        self.assertIn("[subset v3 ✗]", text)
-        self.assertIn("[3 ready]", text)
-        self.assertIn(SEEN_MARK, text)
-        # каждый узел развёрнут ровно один раз
-        for key, node in self.g.nodes.items():
-            title = f"{node.kind} {node.namespace}/{node.name}" if node.kind != "ExternalHost" else f"ExternalHost {node.name}"
-            pattern = re.compile(r"(^|── |⚠ )" + re.escape(title) + r"( |$)")
-            full = [line for line in text.splitlines() if pattern.search(line) and SEEN_MARK not in line]
-            self.assertEqual(len(full), 1, key)
-
-    def test_roots_first(self) -> None:
-        lines = render_tree(self.g).splitlines()
-        self.assertTrue(lines[0].startswith("⚠ Gateway prod/legacy-gw"))
-
-    def test_tree_colored(self) -> None:
-        text = render_tree(self.g, Ansi(enabled=True))
-        self.assertIn(f"\x1b[1;38;5;{theme.ANSI_NODE}m", text)
-        self.assertIn(f"\x1b[38;5;{theme.ANSI_BADGE}m", text)
-        self.assertIn(f"\x1b[1;38;5;{theme.ANSI_ERROR}m", text)
-        self.assertEqual(ANSI_RE.sub("", text), render_tree(self.g, Ansi(enabled=False)))
-
-    def test_summary(self) -> None:
-        text = render_summary(self.g, ["warn-1"])
-        self.assertIn("Проблемы (4)", text)
-        self.assertIn("warn-1", text)
-
-    def test_color_enabled(self) -> None:
-        tty = mock.Mock(isatty=lambda: True)
-        with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(color_enabled(tty))
-            self.assertFalse(color_enabled(tty, force_off=True))
-            self.assertFalse(color_enabled(io.StringIO()))
-        with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
-            self.assertFalse(color_enabled(tty))
-
 
 class WebExportTest(unittest.TestCase):
     @classmethod
@@ -209,19 +157,29 @@ class CliTest(unittest.TestCase):
             path = os.path.join(tmp, "web")
             code, out, _ = self.run_cli("graph", "--from-dir", FIXTURES, "-A", "--web-dir", path)
             self.assertEqual(code, cli.EXIT_PROBLEMS)
-            self.assertNotIn("\x1b[", out)  # StringIO — не терминал
+            # в консоль граф не выводится — только итоговая строка
+            self.assertEqual(len(out.strip().splitlines()), 1)
+            self.assertIn("с проблемами 4", out)
+            self.assertNotIn("└──", out)
+            self.assertNotIn("\x1b[", out)
             self.assertTrue(os.path.getsize(os.path.join(path, "graph.json")) > 1000)
             self.assertTrue(os.path.isfile(os.path.join(path, "index.html")))
 
+    def graph_keys(self, *args: str) -> tuple[int, set[str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _, _ = self.run_cli("graph", "--from-dir", FIXTURES, "--web-dir", tmp, *args)
+            with open(os.path.join(tmp, "graph.json"), encoding="utf-8") as fh:
+                return code, {n["key"] for n in json.load(fh)["nodes"]}
+
     def test_graph_clean_subgraph(self) -> None:
-        code, out, _ = self.run_cli("graph", "--from-dir", FIXTURES, "--resource", "vs/prod/reviews")
+        code, keys = self.graph_keys("--resource", "vs/prod/reviews")
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertIn("EndpointSlice prod/reviews-abc12", out)
+        self.assertIn("EndpointSlice/prod/reviews-abc12", keys)
 
     def test_graph_host(self) -> None:
-        code, out, _ = self.run_cli("graph", "--from-dir", FIXTURES, "--host", "api.example.com")
+        code, keys = self.graph_keys("--host", "api.example.com")
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertNotIn("ratings", out)
+        self.assertNotIn("VirtualService/prod/ratings", keys)
 
     def test_graph_unknown_resource(self) -> None:
         code, _, err = self.run_cli("graph", "--from-dir", FIXTURES, "--resource", "vs/prod/nope")
