@@ -1,0 +1,35 @@
+{
+  "apiVersion": "networking.istio.io/v1",
+  "kind": "VirtualService",
+  "metadata": {
+    "name": "payments-egress",
+    "namespace": "prod"
+  },
+  "spec": {
+    "hosts": [
+      "payments.example.org"
+    ],
+    "tls": [
+      {
+        "match": [
+          {
+            "port": 443,
+            "sniHosts": [
+              "payments.example.org"
+            ]
+          }
+        ],
+        "route": [
+          {
+            "destination": {
+              "host": "api.payments-provider.com",
+              "port": {
+                "number": 443
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

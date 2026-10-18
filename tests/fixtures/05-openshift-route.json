@@ -1,0 +1,29 @@
+{
+  "apiVersion": "route.openshift.io/v1",
+  "kind": "Route",
+  "metadata": {
+    "name": "details",
+    "namespace": "prod"
+  },
+  "spec": {
+    "host": "details.apps.example.com",
+    "to": {
+      "kind": "Service",
+      "name": "details",
+      "weight": 100
+    },
+    "port": {
+      "targetPort": "http"
+    },
+    "alternateBackends": [
+      {
+        "kind": "Service",
+        "name": "details-v2",
+        "weight": 10
+      }
+    ],
+    "tls": {
+      "termination": "edge"
+    }
+  }
+}

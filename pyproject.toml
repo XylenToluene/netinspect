@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netinspect"
+version = "0.1.0"
+description = "Diagnostics of OpenShift / Kubernetes (Istio) network rules: Gateway -> VirtualService -> DestinationRule -> Service -> EndpointSlice"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["PyYAML"]
+
+[project.scripts]
+netinspect = "netinspect.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["netinspect*"]

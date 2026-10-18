@@ -1,0 +1,49 @@
+{
+  "apiVersion": "networking.istio.io/v1",
+  "kind": "Gateway",
+  "metadata": {
+    "name": "public-gw",
+    "namespace": "prod",
+    "managedFields": [
+      {
+        "manager": "kubectl",
+        "operation": "Apply"
+      }
+    ],
+    "annotations": {
+      "kubectl.kubernetes.io/last-applied-configuration": "{\"kind\":\"Gateway\"}",
+      "owner": "platform-team"
+    }
+  },
+  "spec": {
+    "selector": {
+      "istio": "ingressgateway"
+    },
+    "servers": [
+      {
+        "port": {
+          "number": 443,
+          "name": "https",
+          "protocol": "HTTPS"
+        },
+        "hosts": [
+          "*.example.com"
+        ],
+        "tls": {
+          "mode": "SIMPLE",
+          "credentialName": "public-gw-cert"
+        }
+      },
+      {
+        "port": {
+          "number": 80,
+          "name": "http",
+          "protocol": "HTTP"
+        },
+        "hosts": [
+          "prod/api.example.com"
+        ]
+      }
+    ]
+  }
+}

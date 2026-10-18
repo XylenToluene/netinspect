@@ -1,0 +1,150 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "networking.istio.io/v1",
+      "kind": "VirtualService",
+      "metadata": {
+        "name": "reviews",
+        "namespace": "prod"
+      },
+      "spec": {
+        "hosts": [
+          "api.example.com"
+        ],
+        "gateways": [
+          "public-gw",
+          "mesh"
+        ],
+        "http": [
+          {
+            "match": [
+              {
+                "uri": {
+                  "prefix": "/reviews"
+                }
+              }
+            ],
+            "route": [
+              {
+                "destination": {
+                  "host": "reviews",
+                  "subset": "v1",
+                  "port": {
+                    "number": 9080
+                  }
+                },
+                "weight": 80
+              },
+              {
+                "destination": {
+                  "host": "reviews",
+                  "subset": "v2",
+                  "port": {
+                    "number": 9080
+                  }
+                },
+                "weight": 20
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1",
+      "kind": "DestinationRule",
+      "metadata": {
+        "name": "reviews",
+        "namespace": "prod"
+      },
+      "spec": {
+        "host": "reviews",
+        "subsets": [
+          {
+            "name": "v1",
+            "labels": {
+              "version": "v1"
+            }
+          },
+          {
+            "name": "v2",
+            "labels": {
+              "version": "v2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "reviews",
+        "namespace": "prod",
+        "labels": {
+          "app": "reviews"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app": "reviews"
+        },
+        "ports": [
+          {
+            "name": "http",
+            "port": 9080,
+            "protocol": "TCP",
+            "targetPort": 9080
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1",
+      "kind": "EndpointSlice",
+      "addressType": "IPv4",
+      "metadata": {
+        "name": "reviews-abc12",
+        "namespace": "prod",
+        "labels": {
+          "kubernetes.io/service-name": "reviews"
+        }
+      },
+      "endpoints": [
+        {
+          "addresses": [
+            "10.0.0.10"
+          ],
+          "conditions": {
+            "ready": true
+          }
+        },
+        {
+          "addresses": [
+            "10.0.1.11"
+          ],
+          "conditions": {
+            "ready": true
+          }
+        },
+        {
+          "addresses": [
+            "10.0.2.12"
+          ],
+          "conditions": {
+            "ready": true
+          }
+        }
+      ],
+      "ports": [
+        {
+          "name": "http",
+          "port": 9080,
+          "protocol": "TCP"
+        }
+      ]
+    }
+  ]
+}

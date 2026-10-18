@@ -1,0 +1,30 @@
+{
+  "apiVersion": "networking.istio.io/v1",
+  "kind": "VirtualService",
+  "metadata": {
+    "name": "legacy",
+    "namespace": "prod"
+  },
+  "spec": {
+    "hosts": [
+      "old.example.com"
+    ],
+    "gateways": [
+      "legacy-gw"
+    ],
+    "http": [
+      {
+        "route": [
+          {
+            "destination": {
+              "host": "reviews.prod.svc.cluster.local",
+              "port": {
+                "number": 9080
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
