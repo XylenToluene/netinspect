@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -242,6 +243,60 @@ class ServerTest(unittest.TestCase):
     def test_forged_cookie(self) -> None:
         self.cookie = f"{COOKIE_NAME}=forged"
         self.assertFalse(self.call("GET", "/api/session")[1]["connected"])
+
+
+class StaticTest(unittest.TestCase):
+    """Режим без nginx: бэкенд сам раздаёт интерфейс."""
+
+    def start(self, **kwargs: Any) -> str:
+        httpd = make_server("127.0.0.1", 0, **kwargs)
+        threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        return f"127.0.0.1:{httpd.server_address[1]}"
+
+    def get(self, host: str, path: str, method: str = "GET") -> tuple[int, dict[str, str], bytes]:
+        conn = http.client.HTTPConnection(host, timeout=10)
+        self.addCleanup(conn.close)
+        conn.request(method, path)
+        resp = conn.getresponse()
+        return resp.status, dict(resp.getheaders()), resp.read()
+
+    def test_index_and_assets(self) -> None:
+        host = self.start()
+        status, headers, body = self.get(host, "/")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn("connect.js", body.decode())
+        self.assertIn("script-src 'self'", headers["Content-Security-Policy"])
+        self.assertEqual(headers["X-Frame-Options"], "DENY")
+        for path, ctype in (("/style.css", "text/css"), ("/connect.js", "application/javascript"),
+                            ("/graph.html", "text/html"), ("/theme.css", "text/css")):
+            status, headers, _ = self.get(host, path)
+            self.assertEqual((status, headers["Content-Type"].split(";")[0]), (200, ctype), path)
+        status, headers, body = self.get(host, "/", "HEAD")
+        self.assertEqual((status, body), (200, b""))
+
+    def test_no_traversal(self) -> None:
+        host = self.start()
+        for path in ("/../README.md", "/%2e%2e/netinspect/cli.py", "/..%2fcli.py", "/sub/index.html",
+                     "/.hidden.js", "/__init__.py", "/%5c..%5ccli.py"):
+            self.assertEqual(self.get(host, path)[0], 404, path)
+
+    def test_graph_json_from_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "graph.json"), "w") as fh:
+                fh.write('{"nodes": []}')
+            host = self.start(graph_dir=tmp)
+            status, headers, body = self.get(host, "/graph.json")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body), {"nodes": []})
+        self.assertEqual(self.get(self.start(), "/graph.json")[0], 404)
+
+    def test_api_only(self) -> None:
+        host = self.start(static_dir=None)
+        self.assertEqual(self.get(host, "/")[0], 404)
+        self.assertEqual(self.get(host, "/api/health")[0], 200)
 
 
 class HelpersTest(unittest.TestCase):

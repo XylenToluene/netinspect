@@ -82,10 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("serve", parents=[common], help="запустить бэкенд веб-интерфейса (за nginx)")
     p.add_argument("--listen", default="127.0.0.1", metavar="HOST",
-                   help="адрес (по умолчанию 127.0.0.1 — доступ только через nginx на этой машине)")
+                   help="адрес (по умолчанию 127.0.0.1 — доступ только с этой машины)")
     p.add_argument("--port", type=int, default=8081, help="порт (по умолчанию 8081)")
     p.add_argument("--session-ttl", type=float, default=480, metavar="MIN",
                    help="время жизни неактивной сессии, минут (по умолчанию 480)")
+    p.add_argument("--graph-dir", default="web", metavar="DIR",
+                   help="каталог с graph.json для страницы «Граф» (graph --web-dir DIR), по умолчанию web")
+    p.add_argument("--api-only", action="store_true",
+                   help="не раздавать интерфейс — только /api/ (когда интерфейс раздаёт nginx)")
 
     p = sub.add_parser("get", parents=[common], help="вывести ресурсы одного типа")
     p.add_argument("kind", metavar="KIND", help="тип: gw, vs, dr, svc, endpointslice, route или полное имя")
@@ -291,19 +295,28 @@ def _setup_logging(verbose: int, err: TextIO) -> None:
 
 def cmd_serve(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     """Запустить бэкенд веб-интерфейса. Токен вводится в браузере после запуска."""
-    from netinspect.server.app import is_loopback, make_server
+    from netinspect.server.app import STATIC_DIR, is_loopback, make_server
     from netinspect.server.sessions import SessionStore
 
     if not is_loopback(args.listen):
         print(
             f"ВНИМАНИЕ: бэкенд слушает {args.listen} — токены пользователей пойдут по сети. "
-            "Держите его за nginx с HTTPS или слушайте 127.0.0.1",
+            "Используйте HTTPS (nginx) или слушайте 127.0.0.1",
             file=err,
         )
-    httpd = make_server(args.listen, args.port, SessionStore(ttl=args.session_ttl * 60))
+    httpd = make_server(
+        args.listen,
+        args.port,
+        SessionStore(ttl=args.session_ttl * 60),
+        static_dir=None if args.api_only else STATIC_DIR,
+        graph_dir=args.graph_dir,
+    )
     host, port = httpd.server_address[:2]
-    print(f"netinspect API: http://{host}:{port}/api/ (Ctrl+C — остановить)", file=out)
-    print("Интерфейс открывайте через nginx, см. deploy/nginx", file=out)
+    if args.api_only:
+        print(f"netinspect API: http://{host}:{port}/api/ (интерфейс — через nginx)", file=out)
+    else:
+        print(f"netinspect: откройте в браузере http://{host}:{port}/", file=out)
+    print("Ctrl+C — остановить", file=out)
     out.flush()
     try:
         httpd.serve_forever()

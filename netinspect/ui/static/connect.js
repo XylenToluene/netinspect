@@ -131,7 +131,7 @@
           'Получить: oc get configmap kube-root-ca.crt -n default -o jsonpath=\'{.data.ca\\.crt}\''],
     network: ['Проверьте адрес API (обычно https://api.<кластер>:6443).',
               'Сервер netinspect должен иметь сетевой доступ к API кластера (прокси, firewall).'],
-    backend: ['Запустите бэкенд: python -m netinspect serve', 'Проверьте, что nginx проксирует /api/ на 127.0.0.1:8081.']
+    backend: ['Запустите: python -m netinspect serve', 'Если интерфейс открыт через nginx — проверьте, что он проксирует /api/ на 127.0.0.1:8081.']
   };
 
   function showLoading() {

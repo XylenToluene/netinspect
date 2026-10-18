@@ -19,7 +19,7 @@ Service без endpoints) подсвечиваются.
 - **PyYAML — опционально.** Если он установлен, манифесты показываются в YAML,
   читаются `.yaml`/`.yml` файлы и доступен `get -o yaml`. Без него всё работает
   на JSON, YAML-файлы в каталоге пропускаются с предупреждением.
-- **nginx** — только для веб-интерфейса (любая актуальная версия; root не обязателен).
+- **nginx** — не обязателен. Нужен только для установки на сервер с HTTPS; локально интерфейс раздаёт сам `serve`.
 
 Запуск без установки, из корня репозитория:
 
@@ -32,14 +32,13 @@ python -m netinspect --help
 Приложение запускается **без токена** — адрес кластера и токен вводятся в браузере.
 
 ```bash
-# терминал 1 — бэкенд (слушает только 127.0.0.1:8081)
 python -m netinspect serve
-
-# терминал 2 — nginx: интерфейс + прокси /api/ на бэкенд
-nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf
 ```
 
-Откройте http://127.0.0.1:8080/ и вставьте строку подключения. Её даёт консоль
+nginx не нужен: `serve` сам раздаёт интерфейс и API. Слушает только
+127.0.0.1:8081, то есть доступен лишь с этой машины.
+
+Откройте http://127.0.0.1:8081/ и вставьте строку подключения. Её даёт консоль
 OpenShift: меню пользователя → «Copy login command». Подходит строка вида
 `oc login --token=sha256~… --server=https://api.<кластер>:6443`. Поля «Адрес API» и
 «Токен» заполнятся сами; их можно ввести и вручную. Нажмите «Проверить подключение».
@@ -177,14 +176,22 @@ Gateway.
 **Коды выхода:** `0` — успешно, проблем нет; `1` — ошибка (подключение, права,
 аргументы); `2` — граф построен, но найдены проблемы (удобно для CI).
 
-### Веб-интерфейс (nginx)
+### Веб-интерфейс и nginx
+
+Без nginx достаточно `python -m netinspect serve`, адрес http://127.0.0.1:8081/
+(см. «Быстрый старт»). Страница «Граф» берёт `graph.json` из каталога `web/`;
+другой каталог задаётся через `serve --graph-dir DIR`.
+
+С nginx (сервер, HTTPS, общий доступ) бэкенд запускают как
+`python -m netinspect serve --api-only`. Статику тогда раздаёт nginx, а `/api/`
+он проксирует на бэкенд.
 
 Состав:
 
 | Часть | Где | Что делает |
 |---|---|---|
 | статика | `netinspect/ui/static/` | `index.html` + `connect.js` — подключение к кластеру; `graph.html` + `app.js` — граф; `style.css`, `theme.css` |
-| бэкенд | `python -m netinspect serve` | JSON API на 127.0.0.1:8081: `/api/connect`, `/api/session`, `/api/disconnect`, `/api/health` |
+| бэкенд | `python -m netinspect serve` | интерфейс и JSON API на 127.0.0.1:8081: `/api/connect`, `/api/session`, `/api/disconnect`, `/api/health` (с `--api-only` — только API) |
 | nginx | `deploy/nginx/` | раздаёт статику и проксирует `/api/` на бэкенд |
 
 Браузер не может обращаться к API кластера напрямую: мешают CORS и CA кластера.
@@ -207,11 +214,16 @@ python -m netinspect graph -A --web-dir web
 ```bash
 sudo cp deploy/nginx/netinspect.conf deploy/nginx/netinspect-common.inc /etc/nginx/conf.d/
 sudo mkdir -p /var/www/netinspect && sudo cp netinspect/ui/static/* /var/www/netinspect/
-python -m netinspect serve                 # лучше как systemd-сервис
+python -m netinspect serve --api-only      # лучше как systemd-сервис
 sudo nginx -t && sudo nginx -s reload
 ```
 
-**Без root** (`deploy/nginx/nginx-local.conf`, 127.0.0.1:8080): см. «Быстрый старт».
+**nginx без root** (`deploy/nginx/nginx-local.conf`, 127.0.0.1:8080):
+
+```bash
+python -m netinspect serve --api-only
+nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf
+```
 
 Общие правила вынесены в `deploy/nginx/netinspect-common.inc`:
 
@@ -297,8 +309,7 @@ python -m unittest discover -s tests
 
 ```bash
 python -m tests.fake_cluster 18443   # печатает адрес и тестовый токен
-python -m netinspect serve
-nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf
+python -m netinspect serve           # http://127.0.0.1:8081/
 # в интерфейсе: oc login --token=sha256~good-token-0001 --server=http://127.0.0.1:18443
 ```
 

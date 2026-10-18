@@ -1,5 +1,8 @@
 """JSON API веб-интерфейса. Работает за nginx (``location /api/``).
 
+Если nginx нет, тот же процесс раздаёт и интерфейс (``/`` → ``index.html`` и
+файлы из ``netinspect/ui/static``, ``/graph.json`` — из каталога выгрузки графа).
+
 Эндпоинты:
 
 - ``GET  /api/health``     — проверка, что бэкенд жив;
@@ -18,7 +21,9 @@ import http.cookies
 import ipaddress
 import json
 import logging
+import os
 import re
+import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -35,6 +40,25 @@ from netinspect.core.errors import (
     TLSError,
 )
 from netinspect.server.sessions import SessionStore
+
+#: Статика интерфейса (index.html, connect.js, ...), раздаётся, если нет nginx.
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "static")
+STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+}
+#: Те же заголовки безопасности, что в deploy/nginx/netinspect-common.inc.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+        "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
 
 log = logging.getLogger(__name__)
 
@@ -116,9 +140,19 @@ class NetinspectServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], store: SessionStore | None = None) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        store: SessionStore | None = None,
+        static_dir: str | None = STATIC_DIR,
+        graph_dir: str | None = None,
+    ) -> None:
         super().__init__(address, ApiHandler)
         self.store = store or SessionStore()
+        #: Каталог статики; ``None`` — только API (интерфейс раздаёт nginx).
+        self.static_dir = static_dir
+        #: Каталог с graph.json (``graph --web-dir``).
+        self.graph_dir = graph_dir
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -132,7 +166,13 @@ class ApiHandler(BaseHTTPRequestHandler):
     # --- маршрутизация ----------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 - имя задано http.server
+        if not self.path.startswith("/api/"):
+            self._static()
+            return
         self._dispatch({"/api/health": self._health, "/api/session": self._session})
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self.do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
         self._dispatch({"/api/connect": self._connect, "/api/disconnect": self._disconnect}, post=True)
@@ -187,6 +227,50 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.server.store.delete(self._session_id())
         self._send(HTTPStatus.OK, {"ok": True, "connected": False}, cookie="")
 
+    # --- статика (режим без nginx) -----------------------------------------
+
+    def _static_file(self, path: str) -> str | None:
+        """Путь к файлу статики. Отдаются только файлы, лежащие прямо в каталоге (без подкаталогов)."""
+        name = path.lstrip("/") or "index.html"
+        if "/" in name or "\\" in name or name.startswith("."):
+            return None
+        if name == "graph.json":
+            base = self.server.graph_dir
+        else:
+            base = self.server.static_dir
+        if not base or os.path.splitext(name)[1] not in STATIC_TYPES:
+            return None
+        full = os.path.join(base, name)
+        return full if os.path.isfile(full) else None
+
+    def _static(self) -> None:
+        path = urllib.parse.unquote(self.path.split("?", 1)[0])
+        full = self._static_file(path) if self.server.static_dir else None
+        if full is None:
+            body = "404 — не найдено".encode("utf-8")
+            self.send_response(HTTPStatus.NOT_FOUND)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self._security_headers()
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return
+        with open(full, "rb") as fh:
+            data = fh.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", STATIC_TYPES[os.path.splitext(full)[1]])
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self._security_headers()
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
+    def _security_headers(self) -> None:
+        for name, value in SECURITY_HEADERS.items():
+            self.send_header(name, value)
+
     # --- ввод/вывод -------------------------------------------------------
 
     def _read_json(self) -> dict[str, Any]:
@@ -229,7 +313,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        self._security_headers()
         if cookie is not None:
             secure = "; Secure" if self.headers.get("X-Forwarded-Proto", "").lower() == "https" else ""
             max_age = "" if cookie else "; Max-Age=0"
@@ -256,6 +340,12 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def make_server(host: str = "127.0.0.1", port: int = 8081, store: SessionStore | None = None) -> NetinspectServer:
-    """Создать сервер бэкенда (не запуская его)."""
-    return NetinspectServer((host, port), store)
+def make_server(
+    host: str = "127.0.0.1",
+    port: int = 8081,
+    store: SessionStore | None = None,
+    static_dir: str | None = STATIC_DIR,
+    graph_dir: str | None = None,
+) -> NetinspectServer:
+    """Создать сервер (не запуская его). ``static_dir=None`` — только API, интерфейс раздаёт nginx."""
+    return NetinspectServer((host, port), store, static_dir, graph_dir)
