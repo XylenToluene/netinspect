@@ -25,7 +25,8 @@ from netinspect.graph.builder import KIND_COLUMN, node_sort_key
 from netinspect.ui import theme
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "static")
-STATIC_FILES = ("index.html", "connect.js", "graph.html", "app.js", "style.css")
+STATIC_FILES = ("index.html", "connect.js", "graph.html", "app.js", "shell.js", "theme-init.js", "style.css")
+FONTS_DIR = "fonts"
 DATA_FILE = "graph.json"
 THEME_FILE = "theme.css"
 
@@ -81,8 +82,9 @@ def graph_payload(
     for kind in KIND_COLUMN:
         st = theme.node_style(kind)
         styles[kind] = {
-            "fill": f"var(--{st['fill']})",
-            "stroke": f"var(--{st['stroke']})",
+            "color": f"var(--{st['color']})",
+            "soft": f"var(--{st['soft']})",
+            "abbr": str(st["abbr"]),
             "dashed": bool(st["dashed"]),
         }
     return {
@@ -134,6 +136,14 @@ def export_web(
     for name in STATIC_FILES:
         dst = os.path.join(out_dir, name)
         shutil.copyfile(os.path.join(STATIC_DIR, name), dst)
+        os.chmod(dst, 0o644)
+        written.append(dst)
+    fonts_src = os.path.join(STATIC_DIR, FONTS_DIR)
+    fonts_dst = os.path.join(out_dir, FONTS_DIR)
+    os.makedirs(fonts_dst, exist_ok=True)
+    for name in sorted(os.listdir(fonts_src)):
+        dst = os.path.join(fonts_dst, name)
+        shutil.copyfile(os.path.join(fonts_src, name), dst)
         os.chmod(dst, 0o644)
         written.append(dst)
     theme_path = os.path.join(out_dir, THEME_FILE)

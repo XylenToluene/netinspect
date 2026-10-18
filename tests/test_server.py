@@ -276,11 +276,16 @@ class StaticTest(unittest.TestCase):
             self.assertEqual((status, headers["Content-Type"].split(";")[0]), (200, ctype), path)
         status, headers, body = self.get(host, "/", "HEAD")
         self.assertEqual((status, body), (200, b""))
+        status, headers, body = self.get(host, "/fonts/inter-latin-wght-normal.woff2")
+        self.assertEqual((status, headers["Content-Type"]), (200, "font/woff2"))
+        self.assertIn("max-age", headers["Cache-Control"])
+        self.assertIn("font-src 'self'", headers["Content-Security-Policy"])
 
     def test_no_traversal(self) -> None:
         host = self.start()
         for path in ("/../README.md", "/%2e%2e/netinspect/cli.py", "/..%2fcli.py", "/sub/index.html",
-                     "/.hidden.js", "/__init__.py", "/%5c..%5ccli.py"):
+                     "/.hidden.js", "/__init__.py", "/%5c..%5ccli.py", "/fonts/../app.js.woff2",
+                     "/fonts/LICENSE-Inter.txt", "/fonts/sub/x.woff2", "/fonts/.woff2"):
             self.assertEqual(self.get(host, path)[0], 404, path)
 
     def test_graph_json_from_dir(self) -> None:

@@ -20,4 +20,4 @@ netinspect = "netinspect.cli:main"
 include = ["netinspect*"]
 
 [tool.setuptools.package-data]
-netinspect = ["ui/static/*"]
+netinspect = ["ui/static/*", "ui/static/fonts/*"]

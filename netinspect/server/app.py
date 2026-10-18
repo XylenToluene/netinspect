@@ -48,12 +48,13 @@ STATIC_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".woff2": "font/woff2",
 }
 #: Те же заголовки безопасности, что в deploy/nginx/netinspect-common.inc.
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-        "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        "img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -232,7 +233,11 @@ class ApiHandler(BaseHTTPRequestHandler):
     def _static_file(self, path: str) -> str | None:
         """Путь к файлу статики. Отдаются только файлы, лежащие прямо в каталоге (без подкаталогов)."""
         name = path.lstrip("/") or "index.html"
-        if "/" in name or "\\" in name or name.startswith("."):
+        if name.startswith("fonts/") and name.endswith(".woff2"):
+            sub, name = "fonts", name[len("fonts/"):]
+        else:
+            sub = ""
+        if not name or "/" in name or "\\" in name or name.startswith("."):
             return None
         if name == "graph.json":
             base = self.server.graph_dir
@@ -240,7 +245,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             base = self.server.static_dir
         if not base or os.path.splitext(name)[1] not in STATIC_TYPES:
             return None
-        full = os.path.join(base, name)
+        full = os.path.join(base, sub, name)
         return full if os.path.isfile(full) else None
 
     def _static(self) -> None:
@@ -261,7 +266,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", STATIC_TYPES[os.path.splitext(full)[1]])
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
+        # шрифты неизменны — кэшируем; остальное перепроверяем при каждой загрузке
+        self.send_header("Cache-Control", "public, max-age=604800" if full.endswith(".woff2") else "no-cache")
         self._security_headers()
         self.end_headers()
         if self.command != "HEAD":

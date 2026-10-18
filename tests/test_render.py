@@ -44,9 +44,9 @@ class TextRenderTest(unittest.TestCase):
 
     def test_tree_colored(self) -> None:
         text = render_tree(self.g, Ansi(enabled=True))
-        self.assertIn("\x1b[1;38;5;110m", text)
-        self.assertIn("\x1b[38;5;180m", text)
-        self.assertIn("\x1b[1;38;5;124m", text)
+        self.assertIn(f"\x1b[1;38;5;{theme.ANSI_NODE}m", text)
+        self.assertIn(f"\x1b[38;5;{theme.ANSI_BADGE}m", text)
+        self.assertIn(f"\x1b[1;38;5;{theme.ANSI_ERROR}m", text)
         self.assertEqual(ANSI_RE.sub("", text), render_tree(self.g, Ansi(enabled=False)))
 
     def test_summary(self) -> None:
@@ -83,9 +83,14 @@ class WebExportTest(unittest.TestCase):
     def test_files(self) -> None:
         self.assertEqual(
             sorted(os.listdir(self.out)),
-            ["app.js", "connect.js", "graph.html", "graph.json", "index.html", "style.css", "theme.css"],
+            ["app.js", "connect.js", "fonts", "graph.html", "graph.json", "index.html",
+             "shell.js", "style.css", "theme-init.js", "theme.css"],
         )
-        self.assertEqual(len(self.written), 7)
+        fonts = sorted(os.listdir(os.path.join(self.out, "fonts")))
+        self.assertIn("inter-cyrillic-wght-normal.woff2", fonts)
+        self.assertIn("jetbrains-mono-latin-wght-normal.woff2", fonts)
+        self.assertIn("LICENSE-Inter.txt", fonts)
+        self.assertEqual(len(self.written), 9 + len(fonts))
 
     def test_pages_have_no_inline_code(self) -> None:
         for name, script in (("index.html", "connect.js"), ("graph.html", "app.js")):
@@ -95,16 +100,21 @@ class WebExportTest(unittest.TestCase):
             self.assertNotIn("<style", page, name)
             self.assertNotIn("style=", page, name)
             self.assertNotRegex(page, r"\son[a-z]+=", name)
-            for ref in ('href="theme.css"', 'href="style.css"', f'src="{script}"'):
+            for ref in ('href="theme.css"', 'href="style.css"', f'src="{script}"', 'src="shell.js"',
+                        'src="theme-init.js"'):
                 self.assertIn(ref, page, name)
+            # тема применяется до отрисовки: theme-init.js без defer и раньше стилей не грузится позже
+            self.assertNotRegex(page, r'<script src="theme-init.js"[^>]*defer')
 
     def test_no_external_urls(self) -> None:
         # namespace SVG и примеры адреса API в подсказках
         allowed = {"http://www.w3.org/2000/svg", "https://api.cluster.example:6443", "https://api."}
-        for name in ("index.html", "graph.html", "style.css", "app.js", "connect.js", "theme.css"):
+        for name in ("index.html", "graph.html", "style.css", "app.js", "connect.js", "shell.js",
+                     "theme-init.js", "theme.css"):
             text = self.read(name)
             self.assertNotIn("@import", text)
-            urls = set(re.findall(r"https?://[^\s\"'<>)]+", text))
+            # адреса 127.0.0.1 — подсказки «откройте http://127.0.0.1:8081/…» в тексте
+            urls = {u for u in re.findall(r"https?://[^\s\"'<>)]+", text) if not u.startswith("http://127.0.0.1")}
             self.assertLessEqual(urls, allowed, name)
             self.assertNotRegex(text, r"(src|href)=\"(https?:)?//", name)
 
@@ -125,10 +135,12 @@ class WebExportTest(unittest.TestCase):
         gw = next(n for n in data["nodes"] if n["key"] == "Gateway/prod/public-gw")
         self.assertIn("public-gw", gw["manifest"])
         self.assertNotIn("managedFields", gw["manifest"])
-        self.assertEqual(data["styles"]["Gateway"]["fill"], "var(--blue-300)")
+        self.assertEqual(data["styles"]["Gateway"]["color"], "var(--kind-gateway)")
+        self.assertEqual(data["styles"]["ExternalHost"]["abbr"], "EXT")
+        self.assertTrue(data["styles"]["ExternalHost"]["dashed"])
 
     def test_ui_does_not_use_innerhtml(self) -> None:
-        for name in ("app.js", "connect.js"):
+        for name in ("app.js", "connect.js", "shell.js", "theme-init.js"):
             js = self.read(name)
             self.assertNotIn("innerHTML", js, name)
             self.assertNotIn("eval(", js, name)

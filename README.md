@@ -67,6 +67,26 @@ RequestAuthentication, Telemetry и т.д.
 > Вне `localhost` открывайте интерфейс только по HTTPS (заготовка в
 > `deploy/nginx/netinspect.conf`): иначе токен пойдёт по сети открытым текстом.
 
+## Дизайн интерфейса
+
+- **Палитра.** Нейтральная холодная шкала «slate» и один акцент «iris»
+  (индиго-фиолетовый). Подход взят у Linear и Radix Colors: у каждого токена своя
+  роль (фон, поверхность, состояние, рамка, текст).
+- **Цвета типов узлов** — соседние оттенки одного сектора цветового круга (cyan,
+  sky, iris, violet, teal), поэтому они гармонируют между собой. Красный и янтарный
+  оставлены только для проблем, как в Kiali.
+- **Темы:** светлая и тёмная. По умолчанию тема следует системной; переключатель
+  находится внизу сайдбара, выбор хранится только в браузере.
+- **Контраст** текста в обеих темах — не ниже WCAG AA (4.5:1). Это проверяет тест
+  `tests/test_theme.py`.
+- **Шрифты:** Inter для интерфейса и JetBrains Mono для данных (хосты, версии, YAML).
+  Эту пару использует, например, GitLab. Файлы шрифтов (латиница и кириллица,
+  около 120 КБ) лежат в `netinspect/ui/static/fonts` под лицензией SIL OFL 1.1,
+  поэтому интерфейс не обращается в интернет.
+- **Источник токенов** — `netinspect/ui/theme.py`. После правки палитры обновите
+  `theme.css`:
+  `python -c "from netinspect.graph.render_web import theme_css; open('netinspect/ui/static/theme.css','w').write(theme_css())"`.
+
 ## Подключение к кластеру из командной строки
 
 Нужны адрес API, личный токен и (желательно) CA-сертификат API.
@@ -322,7 +342,8 @@ netinspect/
   graph/  — builder (связи), traverse (подграфы), render_text, render_web (выгрузка UI)
   server/ — бэкенд веб-интерфейса: app.py (JSON API), sessions.py (сессии в памяти)
   ui/     — theme.py: палитра, единый источник цветов для UI и консоли;
-            static/: index.html + connect.js, graph.html + app.js, style.css, theme.css
+            static/: index.html + connect.js, graph.html + app.js, shell.js, theme-init.js,
+            style.css, theme.css, fonts/ (Inter, JetBrains Mono — OFL 1.1)
 deploy/nginx/ — конфигурация nginx для веб-интерфейса
 tests/fake_cluster.py — фейковый API кластера с Istio для тестов и ручной проверки
 ```
