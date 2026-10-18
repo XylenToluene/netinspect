@@ -220,6 +220,9 @@ class AccessAndDiscoveryTest(unittest.TestCase):
         self.assertFalse(info.is_openshift)
         self.assertIsNone(info.version_for(get_type("Route")))
         self.assertEqual(info.version_for(get_type("Service")), "v1")
+        # версия выбирается для каждого типа: EnvoyFilter есть только в v1alpha3
+        self.assertEqual(info.version_for(get_type("VirtualService")), "v1beta1")
+        self.assertEqual(info.version_for(get_type("EnvoyFilter")), "v1alpha3")
 
 
 class ClusterSourceTest(unittest.TestCase):

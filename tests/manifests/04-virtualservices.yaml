@@ -1,0 +1,101 @@
+# VirtualService.
+#   reviews          — рабочий: шлюз + mesh, 80% → subset v1, 20% → subset v2
+#   ratings          — 90% → v1, 10% → v3 (subset v3 в DR нет — ошибка)
+#   legacy           — ссылается на несуществующий Gateway old-gateway (ошибка)
+#   productpage      — рабочий: шлюз → productpage, /details → details (у details нет подов)
+#   payments-egress  — исходящий трафик на внешний API, описанный ServiceEntry
+#   analytics-egress — внешний хост без ServiceEntry (пометка)
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: reviews
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - reviews.demo.example.com
+    - reviews
+  gateways:
+    - demo-gateway
+    - mesh
+  http:
+    - route:
+        - destination: {host: reviews, subset: v1, port: {number: 8080}}
+          weight: 80
+        - destination: {host: reviews, subset: v2, port: {number: 8080}}
+          weight: 20
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: ratings
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - ratings.demo.example.com
+  gateways:
+    - demo-gateway
+  http:
+    - route:
+        - destination: {host: ratings.netinspect-demo.svc.cluster.local, subset: v1}
+          weight: 90
+        - destination: {host: ratings.netinspect-demo.svc.cluster.local, subset: v3}
+          weight: 10
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: legacy
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - old.demo.example.com
+  gateways:
+    - old-gateway
+  http:
+    - route:
+        - destination: {host: reviews, port: {number: 8080}}
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: productpage
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - productpage.demo.example.com
+  gateways:
+    - demo-gateway
+  http:
+    - match:
+        - uri: {prefix: /details}
+      route:
+        - destination: {host: details, port: {number: 8080}}
+    - route:
+        - destination: {host: productpage, port: {number: 8080}}
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: payments-egress
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - api.payments.example.org
+  tls:
+    - match:
+        - port: 443
+          sniHosts: [api.payments.example.org]
+      route:
+        - destination: {host: api.payments.example.org, port: {number: 443}}
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: analytics-egress
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - analytics.demo.example.com
+  http:
+    - route:
+        - destination: {host: api.analytics.example.net, port: {number: 443}}

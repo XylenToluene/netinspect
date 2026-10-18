@@ -1,0 +1,88 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "networking.istio.io/v1",
+      "kind": "ServiceEntry",
+      "metadata": {
+        "name": "payments-api",
+        "namespace": "prod"
+      },
+      "spec": {
+        "hosts": [
+          "api.payments-provider.com"
+        ],
+        "ports": [
+          {
+            "number": 443,
+            "name": "tls",
+            "protocol": "TLS"
+          }
+        ],
+        "location": "MESH_EXTERNAL",
+        "resolution": "DNS"
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1",
+      "kind": "DestinationRule",
+      "metadata": {
+        "name": "payments-api",
+        "namespace": "prod"
+      },
+      "spec": {
+        "host": "api.payments-provider.com",
+        "trafficPolicy": {
+          "tls": {
+            "mode": "SIMPLE"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1",
+      "kind": "ServiceEntry",
+      "metadata": {
+        "name": "legacy-db",
+        "namespace": "prod"
+      },
+      "spec": {
+        "hosts": [
+          "legacy-db.corp.internal"
+        ],
+        "ports": [
+          {
+            "number": 5432,
+            "name": "tcp-pg",
+            "protocol": "TCP"
+          }
+        ],
+        "location": "MESH_INTERNAL",
+        "resolution": "STATIC"
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1",
+      "kind": "ServiceEntry",
+      "metadata": {
+        "name": "partner-apis",
+        "namespace": "prod"
+      },
+      "spec": {
+        "hosts": [
+          "*.partner.example.com"
+        ],
+        "ports": [
+          {
+            "number": 443,
+            "name": "https",
+            "protocol": "HTTPS"
+          }
+        ],
+        "location": "MESH_EXTERNAL",
+        "resolution": "DNS"
+      }
+    }
+  ]
+}

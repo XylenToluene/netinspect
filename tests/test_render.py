@@ -78,7 +78,7 @@ class WebExportTest(unittest.TestCase):
         self.assertEqual(len(data["nodes"]), len(self.g.nodes))
         self.assertEqual(len(data["edges"]), len(self.g.edges))
         self.assertEqual(data["meta"]["server"], "dir:fixtures")
-        self.assertEqual(data["meta"]["problems"], 4)
+        self.assertEqual(data["meta"]["problems"], 7)
         self.assertEqual(data["meta"]["warnings"], ["<b>warn</b>"])  # экранирует UI (textContent)
         gw = next(n for n in data["nodes"] if n["key"] == "Gateway/prod/public-gw")
         self.assertIn("public-gw", gw["manifest"])
@@ -159,7 +159,7 @@ class CliTest(unittest.TestCase):
             self.assertEqual(code, cli.EXIT_PROBLEMS)
             # в консоль граф не выводится — только итоговая строка
             self.assertEqual(len(out.strip().splitlines()), 1)
-            self.assertIn("с проблемами 4", out)
+            self.assertIn("с проблемами 7", out)
             self.assertNotIn("└──", out)
             self.assertNotIn("\x1b[", out)
             self.assertTrue(os.path.getsize(os.path.join(path, "graph.json")) > 1000)

@@ -23,10 +23,17 @@ class ClusterInfo:
     is_openshift: bool = False
 
     def version_for(self, rt: ResourceType) -> str | None:
-        """Версия для типа ресурса или ``None``, если API нет в кластере."""
+        """Версия для типа ресурса или ``None``, если API нет в кластере.
+
+        Версия выбирается для каждого типа отдельно: например, VirtualService
+        доступен в ``v1``, а EnvoyFilter — только в ``v1alpha3``.
+        """
         if rt.is_core:
             return rt.versions[0]
-        return self.group_versions.get(rt.group)
+        served = self.served.get(rt.group)
+        if served is None:
+            return None
+        return next((v for v in rt.versions if v in served), None)
 
     @property
     def istio_version(self) -> str | None:

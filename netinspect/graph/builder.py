@@ -2,9 +2,11 @@
 
 Направление рёбер — по движению трафика::
 
-    Gateway → VirtualService → DestinationRule
-                             → Service / ExternalHost → EndpointSlice
+    Gateway → VirtualService → Subset (подмножество DestinationRule) → Service / ServiceEntry / ExternalHost → EndpointSlice
+                             → DestinationRule (если subset не указан)
     Route → Service
+    DestinationRule ─содержит→ Subset
+    EnvoyFilter ─применяется→ Gateway / Service / Subset
 
 Каждый тип связывается отдельным «линкером»; новый тип ресурса добавляется
 новым методом ``_link_<kind>`` и записью в ``GraphBuilder.LINKERS``.
@@ -25,21 +27,35 @@ from netinspect.core.hosts import (
     split_service_fqdn,
     to_fqdn,
 )
-from netinspect.core.model import Graph, Node, Resource, make_key
+from netinspect.core.model import (
+    EDGE_CONTAINS,
+    EDGE_POLICY,
+    EDGE_TRAFFIC,
+    Graph,
+    Node,
+    Resource,
+    make_key,
+)
 
 SERVICE_NAME_LABEL = "kubernetes.io/service-name"
 EXTERNAL_NS = "-"
 ROUTE_SECTIONS = ("http", "tcp", "tls")
+#: Корневой namespace Istio: EnvoyFilter без selector здесь действует на весь mesh.
+ROOT_NAMESPACES = frozenset({"istio-system"})
+SUBSET_KIND = "Subset"
 
 #: Порядок колонок (по направлению трафика) — общий для рендеров.
 KIND_COLUMN: dict[str, int] = {
-    "Gateway": 0,
-    "Route": 0,
-    "VirtualService": 1,
-    "DestinationRule": 2,
-    "Service": 3,
-    "ExternalHost": 3,
-    "EndpointSlice": 4,
+    "EnvoyFilter": 0,
+    "Gateway": 1,
+    "Route": 1,
+    "VirtualService": 2,
+    "DestinationRule": 3,
+    SUBSET_KIND: 4,
+    "Service": 5,
+    "ServiceEntry": 5,
+    "ExternalHost": 5,
+    "EndpointSlice": 6,
 }
 
 
@@ -74,9 +90,11 @@ class _EdgeLabels:
     """Подписи рёбер, накапливаемые до финализации (несколько route → одно ребро)."""
 
     parts: dict[tuple[str, str], list[str]] = field(default_factory=lambda: defaultdict(list))
+    kinds: dict[tuple[str, str], str] = field(default_factory=dict)
 
-    def add(self, source: str, target: str, part: str = "") -> None:
+    def add(self, source: str, target: str, part: str = "", kind: str = EDGE_TRAFFIC) -> None:
         bucket = self.parts[(source, target)]
+        self.kinds.setdefault((source, target), kind)
         if part and part not in bucket:
             bucket.append(part)
 
@@ -100,13 +118,25 @@ class GraphBuilder:
             svc_name = es.labels.get(SERVICE_NAME_LABEL)
             if svc_name:
                 self._slices[(es.namespace, svc_name)].append(es)
+        #: Хосты ServiceEntry: (нормализованный хост, ресурс).
+        self._se_hosts: list[tuple[str, Resource]] = [
+            (normalize(str(h)), se)
+            for se in self._by_kind["ServiceEntry"]
+            for h in se.spec.get("hosts") or []
+            if str(h).strip()
+        ]
+        #: Использованные маршрутами VirtualService subset-узлы.
+        self._used_subsets: set[str] = set()
 
+    #: Порядок важен: subset-узлы и ServiceEntry должны существовать до разбора VirtualService.
     LINKERS: tuple[tuple[str, str], ...] = (
         ("Gateway", "_link_gateway"),
-        ("VirtualService", "_link_virtualservice"),
+        ("ServiceEntry", "_link_serviceentry"),
         ("DestinationRule", "_link_destinationrule"),
+        ("VirtualService", "_link_virtualservice"),
         ("Route", "_link_route"),
         ("Service", "_link_service"),
+        ("EnvoyFilter", "_link_envoyfilter"),
     )
 
     # --- общие помощники ----------------------------------------------
@@ -119,9 +149,17 @@ class GraphBuilder:
             linker: Callable[[Resource], None] = getattr(self, method)
             for res in self._by_kind.get(kind, []):
                 linker(res)
+        self._finalize()
         for (source, target), parts in self._labels.parts.items():
-            self.graph.add_edge(source, target, ", ".join(parts))
+            kind = self._labels.kinds.get((source, target), EDGE_TRAFFIC)
+            self.graph.add_edge(source, target, ", ".join(parts), kind)
         return self.graph
+
+    def _finalize(self) -> None:
+        """Проверки, которым нужен весь граф: неиспользуемые subset."""
+        for node in self.graph.nodes.values():
+            if node.kind == SUBSET_KIND and not node.missing and node.key not in self._used_subsets:
+                node.add_badge("не используется")
 
     def _node(self, res: Resource) -> Node:
         return self.graph.nodes[res.key]
@@ -137,8 +175,8 @@ class GraphBuilder:
             node.add_problem(f"{kind} {namespace}/{name} не найден (ссылка из {referrer})")
         return node
 
-    def _link(self, source: str, target: str, label: str = "") -> None:
-        self._labels.add(source, target, label)
+    def _link(self, source: str, target: str, label: str = "", kind: str = EDGE_TRAFFIC) -> None:
+        self._labels.add(source, target, label, kind)
 
     # --- Gateway ---------------------------------------------------------
 
@@ -206,10 +244,14 @@ class GraphBuilder:
         return result
 
     def _link_destination(self, vs: Resource, dest: _Destination) -> None:
+        """Связать VirtualService с назначением маршрута.
+
+        - subset указан и найден в DR: VS → Subset → Service/ServiceEntry (DR связан с subset);
+        - subset указан, но в DR его нет: VS → DR (с пометкой ✗) и VS → Service;
+        - subset не указан: VS → Service и VS → DR (политики DR применяются к хосту).
+        """
         referrer = f"VirtualService {vs.namespace}/{vs.name}"
         label_parts = []
-        if dest.subset:
-            label_parts.append(dest.subset)
         if dest.port:
             label_parts.append(f":{dest.port}")
         if dest.weight is not None:
@@ -219,16 +261,27 @@ class GraphBuilder:
         label = " ".join(label_parts)
 
         target_key = self._target_for_host(dest.fqdn, referrer)
-        self._link(vs.key, target_key, label)
-
         drs = self._find_destination_rules(dest.fqdn)
+
+        if not dest.subset:
+            self._link(vs.key, target_key, label)
+            for dr in drs:
+                self._link(vs.key, dr.key)
+            return
+
+        routed = False
         for dr in drs:
-            mark = ""
-            if dest.subset:
-                ok = self._check_subset(dr, dest.subset, referrer)
-                mark = f"{dest.subset} {'✓' if ok else '✗'}"
-            self._link(vs.key, dr.key, mark)
-        if dest.subset and not drs:
+            if self._check_subset(dr, dest.subset, referrer):
+                subset_key = self._subset_key(dr, dest.subset)
+                self._used_subsets.add(subset_key)
+                self._link(vs.key, subset_key, label)
+                self._link(subset_key, target_key)
+                routed = True
+            else:
+                self._link(vs.key, dr.key, f"{dest.subset} ✗")
+        if not routed:
+            self._link(vs.key, target_key, " ".join([dest.subset, label]).strip())
+        if not drs:
             split = split_service_fqdn(dest.fqdn, self.domain)
             ns, name = split if split else (vs.namespace, dest.host.split(".")[0])
             node = self._ensure_missing("DestinationRule", ns, name, referrer)
@@ -236,23 +289,47 @@ class GraphBuilder:
             node.add_badge(f"subset {dest.subset} ✗")
             self._link(vs.key, node.key, f"{dest.subset} ✗")
 
+    def _find_service_entry(self, fqdn: str) -> Resource | None:
+        """ServiceEntry, объявляющий хост: точное совпадение приоритетнее wildcard."""
+        wildcard: Resource | None = None
+        for host, se in self._se_hosts:
+            if host == fqdn:
+                return se
+            if wildcard is None and "*" in host and match_host(host, fqdn):
+                wildcard = se
+        return wildcard
+
     def _target_for_host(self, fqdn: str, referrer: str) -> str:
-        """Ключ узла Service (существующего или missing) либо ExternalHost."""
-        if is_cluster_host(fqdn, self.domain):
-            split = split_service_fqdn(fqdn, self.domain)
-            if split:
-                ns, name = split
-                key = make_key("Service", ns, name)
-                if key in self._services:
-                    return key
-                return self._ensure_missing("Service", ns, name, referrer).key
+        """Ключ узла назначения: Service, ServiceEntry, заглушка «не найден» или ExternalHost."""
+        cluster = is_cluster_host(fqdn, self.domain)
+        split = split_service_fqdn(fqdn, self.domain) if cluster else None
+        if split:
+            key = make_key("Service", split[0], split[1])
+            if key in self._services:
+                return key
+        se = self._find_service_entry(fqdn)
+        if se is not None:
+            return se.key
+        if split:
+            return self._ensure_missing("Service", split[0], split[1], referrer).key
         key = make_key("ExternalHost", EXTERNAL_NS, fqdn)
         node = self.graph.nodes.get(key)
         if node is None:
             node = self.graph.add_node(Node(key, "ExternalHost", EXTERNAL_NS, fqdn))
             node.hosts.append(fqdn)
             node.add_badge("external")
+            node.add_badge("нет ServiceEntry")
         return key
+
+    def _existing_target(self, fqdn: str) -> str | None:
+        """Существующий Service или ServiceEntry для хоста (без создания узлов)."""
+        split = split_service_fqdn(fqdn, self.domain) if is_cluster_host(fqdn, self.domain) else None
+        if split:
+            key = make_key("Service", split[0], split[1])
+            if key in self._services:
+                return key
+        se = self._find_service_entry(fqdn)
+        return se.key if se is not None else None
 
     def _find_destination_rules(self, fqdn: str) -> list[Resource]:
         """DR, чей host совпадает с FQDN; точные совпадения приоритетнее wildcard."""
@@ -280,17 +357,153 @@ class GraphBuilder:
         node.add_problem(f"subset {subset} отсутствует в DestinationRule (ссылка из {referrer})")
         return False
 
-    # --- DestinationRule ------------------------------------------------
+    # --- DestinationRule и subsets --------------------------------------
+
+    @staticmethod
+    def _subset_key(dr: Resource, subset: str) -> str:
+        return make_key(SUBSET_KIND, dr.namespace, f"{dr.name}:{subset}")
 
     def _link_destinationrule(self, dr: Resource) -> None:
         node = self._node(dr)
         host = dr.spec.get("host")
-        if host:
-            fqdn = to_fqdn(str(host), dr.namespace, self.domain)
+        fqdn = to_fqdn(str(host), dr.namespace, self.domain) if host else ""
+        target: str | None = None
+        if not host:
+            node.add_problem("не задан spec.host")
+        else:
             node.hosts.append(fqdn)
             node.add_badge(f"host {fqdn}")
+            if "*" not in fqdn:
+                target = self._existing_target(fqdn)
+                if target is None and is_cluster_host(fqdn, self.domain):
+                    node.add_problem(f"host {fqdn}: Service или ServiceEntry с таким именем не найден")
+        tls_mode = ((dr.spec.get("trafficPolicy") or {}).get("tls") or {}).get("mode")
+        if tls_mode:
+            node.add_badge(f"tls {tls_mode}")
+        seen: set[str] = set()
+        for subset in dr.spec.get("subsets") or []:
+            if not isinstance(subset, dict) or not subset.get("name"):
+                node.add_problem("subset без имени")
+                continue
+            name = str(subset["name"])
+            if name in seen:
+                node.add_problem(f"subset {name} объявлен дважды")
+                continue
+            seen.add(name)
+            self._add_subset_node(dr, subset, target)
+
+    def _add_subset_node(self, dr: Resource, subset: dict[str, Any], target: str | None) -> None:
+        """Узел-subset: метки подов, своя trafficPolicy; связи DR → subset → сервис."""
+        name = str(subset["name"])
+        key = self._subset_key(dr, name)
+        res = Resource(kind=SUBSET_KIND, namespace=dr.namespace, name=f"{dr.name}:{name}", spec=subset, raw=subset)
+        sub_node = self.graph.add_node(Node(key, SUBSET_KIND, dr.namespace, res.name, resource=res))
+        labels = subset.get("labels") or {}
+        if labels:
+            for k, v in labels.items():
+                sub_node.add_badge(f"{k}={v}")
         else:
-            node.add_problem("не задан spec.host")
+            sub_node.add_badge("без меток: все поды")
+        if subset.get("trafficPolicy"):
+            sub_node.add_badge("своя trafficPolicy")
+        self._link(dr.key, key, name, EDGE_CONTAINS)
+        if target:
+            self._link(key, target)
+
+    # --- ServiceEntry ---------------------------------------------------
+
+    def _link_serviceentry(self, se: Resource) -> None:
+        node = self._node(se)
+        hosts = [normalize(str(h)) for h in se.spec.get("hosts") or [] if str(h).strip()]
+        for h in hosts:
+            node.hosts.append(h)
+            node.add_badge(h)
+        if not hosts:
+            node.add_problem("не заданы hosts")
+        ports = [p for p in se.spec.get("ports") or [] if isinstance(p, dict)]
+        for p in ports:
+            node.add_badge(f"{p.get('number')}/{p.get('protocol', 'TCP')}")
+        if not ports:
+            node.add_problem("не заданы ports")
+        location = se.spec.get("location") or "MESH_EXTERNAL"
+        node.add_badge("внешний" if location == "MESH_EXTERNAL" else "внутренний")
+        resolution = str(se.spec.get("resolution") or "NONE")
+        node.add_badge(f"resolution {resolution}")
+        endpoints = se.spec.get("endpoints") or []
+        if endpoints:
+            node.add_badge(f"{len(endpoints)} endpoints")
+        has_selector = bool(se.spec.get("workloadSelector"))
+        if resolution == "STATIC" and not endpoints and not has_selector:
+            node.add_problem("resolution STATIC, но не заданы endpoints (или workloadSelector)")
+        if resolution in ("DNS", "DNS_ROUND_ROBIN") and not endpoints:
+            for h in hosts:
+                if "*" in h:
+                    node.add_problem(f"resolution {resolution} не работает с wildcard-хостом {h} без endpoints")
+
+    # --- EnvoyFilter ----------------------------------------------------
+
+    def _link_envoyfilter(self, ef: Resource) -> None:
+        node = self._node(ef)
+        for patch in ef.spec.get("configPatches") or []:
+            if not isinstance(patch, dict):
+                continue
+            apply_to = patch.get("applyTo") or "?"
+            context = (patch.get("match") or {}).get("context") or "ANY"
+            operation = (patch.get("patch") or {}).get("operation") or ""
+            node.add_badge(f"{apply_to} @ {context}" + (f" ({operation})" if operation else ""))
+        if not ef.spec.get("configPatches"):
+            node.add_problem("нет configPatches — фильтр ничего не меняет")
+        if ef.spec.get("priority") is not None:
+            node.add_badge(f"priority {ef.spec['priority']}")
+        if ef.spec.get("targetRefs"):
+            node.add_badge("targetRefs")
+            return
+        selector = (ef.spec.get("workloadSelector") or {}).get("labels") or {}
+        selector = {str(k): str(v) for k, v in selector.items()}
+        if not selector:
+            node.add_badge("весь mesh" if ef.namespace in ROOT_NAMESPACES else f"весь namespace {ef.namespace}")
+            return
+        for k, v in selector.items():
+            node.add_badge(f"{k}={v}")
+        any_ns = ef.namespace in ROOT_NAMESPACES
+        matched = 0
+        # Gateway: поды шлюза обычно в другом namespace, поэтому сверяем только метки
+        for gw in self._by_kind.get("Gateway", []):
+            gw_sel = {str(k): str(v) for k, v in (gw.spec.get("selector") or {}).items()}
+            if gw_sel and _subset_of(selector, gw_sel):
+                self._link(ef.key, gw.key, "фильтр", EDGE_POLICY)
+                matched += 1
+        for svc in self._by_kind.get("Service", []):
+            if not any_ns and svc.namespace != ef.namespace:
+                continue
+            svc_sel = {str(k): str(v) for k, v in (svc.spec.get("selector") or {}).items()}
+            if not svc_sel:
+                continue
+            if _subset_of(selector, svc_sel):
+                self._link(ef.key, svc.key, "фильтр", EDGE_POLICY)
+                matched += 1
+                continue
+            # метки сверх selector сервиса — ищем subset, чьи поды их несут
+            for sub_key, sub_labels in self._subsets_of_service(svc.key):
+                if _subset_of(selector, {**svc_sel, **sub_labels}):
+                    self._link(ef.key, sub_key, "фильтр", EDGE_POLICY)
+                    matched += 1
+        if not matched:
+            node.add_problem(
+                "workloadSelector "
+                + ", ".join(f"{k}={v}" for k, v in selector.items())
+                + " не совпадает ни с одним Gateway, Service или subset"
+            )
+
+    def _subsets_of_service(self, svc_key: str) -> list[tuple[str, dict[str, str]]]:
+        """Subset-узлы, ведущие в сервис, с их метками."""
+        result = []
+        for (source, target), _parts in self._labels.parts.items():
+            if target == svc_key and source.startswith(SUBSET_KIND + "/"):
+                sub = self.graph.nodes[source]
+                labels = (sub.resource.spec.get("labels") if sub.resource else None) or {}
+                result.append((source, {str(k): str(v) for k, v in labels.items()}))
+        return result
 
     # --- Route (OpenShift) ----------------------------------------------
 
@@ -354,6 +567,11 @@ class GraphBuilder:
         if total_ready == 0:
             node.add_badge("0 ready")
             node.add_problem("нет ни одного ready endpoint")
+
+
+def _subset_of(small: dict[str, str], big: dict[str, str]) -> bool:
+    """Все метки ``small`` есть в ``big`` с теми же значениями."""
+    return all(big.get(k) == v for k, v in small.items())
 
 
 def _ready_count(slice_obj: dict[str, Any]) -> int:

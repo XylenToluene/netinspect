@@ -1,0 +1,11 @@
+# OpenShift Route → Service productpage (только для OpenShift).
+# host не задан — OpenShift сам выдаст адрес в домене кластера.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: productpage
+  namespace: netinspect-demo
+spec:
+  to: {kind: Service, name: productpage, weight: 100}
+  port: {targetPort: http}
+  tls: {termination: edge}

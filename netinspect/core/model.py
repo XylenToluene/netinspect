@@ -92,6 +92,13 @@ class Node:
         }
 
 
+#: Виды связей: трафик идёт по ссылке / ресурс входит в другой (DR → subset) /
+#: политика применяется к объекту (EnvoyFilter → Gateway, Service, subset).
+EDGE_TRAFFIC = "traffic"
+EDGE_CONTAINS = "contains"
+EDGE_POLICY = "policy"
+
+
 @dataclass(slots=True, frozen=True)
 class Edge:
     """Направленное ребро графа (по направлению трафика)."""
@@ -99,10 +106,11 @@ class Edge:
     source: str
     target: str
     label: str = ""
+    kind: str = EDGE_TRAFFIC
 
     def to_dict(self) -> dict[str, str]:
         """Сериализация в dict."""
-        return {"source": self.source, "target": self.target, "label": self.label}
+        return {"source": self.source, "target": self.target, "label": self.label, "kind": self.kind}
 
 
 @dataclass(slots=True)
@@ -120,9 +128,9 @@ class Graph:
         self.nodes[node.key] = node
         return node
 
-    def add_edge(self, source: str, target: str, label: str = "") -> Edge:
+    def add_edge(self, source: str, target: str, label: str = "", kind: str = EDGE_TRAFFIC) -> Edge:
         """Добавить ребро (без дублей)."""
-        edge = Edge(source, target, label)
+        edge = Edge(source, target, label, kind)
         if edge not in self.edges:
             self.edges.append(edge)
         return edge

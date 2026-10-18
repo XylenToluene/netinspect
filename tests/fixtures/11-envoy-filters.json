@@ -1,0 +1,147 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "networking.istio.io/v1alpha3",
+      "kind": "EnvoyFilter",
+      "metadata": {
+        "name": "reviews-headers",
+        "namespace": "prod"
+      },
+      "spec": {
+        "configPatches": [
+          {
+            "applyTo": "HTTP_FILTER",
+            "match": {
+              "context": "SIDECAR_INBOUND"
+            },
+            "patch": {
+              "operation": "INSERT_BEFORE",
+              "value": {
+                "name": "example"
+              }
+            }
+          }
+        ],
+        "workloadSelector": {
+          "labels": {
+            "app": "reviews"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1alpha3",
+      "kind": "EnvoyFilter",
+      "metadata": {
+        "name": "reviews-v2-debug",
+        "namespace": "prod"
+      },
+      "spec": {
+        "configPatches": [
+          {
+            "applyTo": "HTTP_FILTER",
+            "match": {
+              "context": "SIDECAR_INBOUND"
+            },
+            "patch": {
+              "operation": "INSERT_FIRST",
+              "value": {
+                "name": "example"
+              }
+            }
+          }
+        ],
+        "workloadSelector": {
+          "labels": {
+            "app": "reviews",
+            "version": "v2"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1alpha3",
+      "kind": "EnvoyFilter",
+      "metadata": {
+        "name": "gateway-lua",
+        "namespace": "istio-system"
+      },
+      "spec": {
+        "configPatches": [
+          {
+            "applyTo": "HTTP_FILTER",
+            "match": {
+              "context": "GATEWAY"
+            },
+            "patch": {
+              "operation": "INSERT_BEFORE",
+              "value": {
+                "name": "example"
+              }
+            }
+          }
+        ],
+        "workloadSelector": {
+          "labels": {
+            "istio": "ingressgateway"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1alpha3",
+      "kind": "EnvoyFilter",
+      "metadata": {
+        "name": "mesh-access-log",
+        "namespace": "istio-system"
+      },
+      "spec": {
+        "configPatches": [
+          {
+            "applyTo": "NETWORK_FILTER",
+            "match": {
+              "context": "ANY"
+            },
+            "patch": {
+              "operation": "MERGE",
+              "value": {
+                "name": "example"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "networking.istio.io/v1alpha3",
+      "kind": "EnvoyFilter",
+      "metadata": {
+        "name": "orphan-filter",
+        "namespace": "prod"
+      },
+      "spec": {
+        "configPatches": [
+          {
+            "applyTo": "HTTP_FILTER",
+            "match": {
+              "context": "SIDECAR_OUTBOUND"
+            },
+            "patch": {
+              "operation": "INSERT_BEFORE",
+              "value": {
+                "name": "example"
+              }
+            }
+          }
+        ],
+        "workloadSelector": {
+          "labels": {
+            "app": "payments-v9"
+          }
+        }
+      }
+    }
+  ]
+}

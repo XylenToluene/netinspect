@@ -1,0 +1,27 @@
+{
+  "apiVersion": "networking.istio.io/v1",
+  "kind": "VirtualService",
+  "metadata": {
+    "name": "analytics-egress",
+    "namespace": "prod"
+  },
+  "spec": {
+    "hosts": [
+      "analytics.example.net"
+    ],
+    "http": [
+      {
+        "route": [
+          {
+            "destination": {
+              "host": "api.analytics.example.net",
+              "port": {
+                "number": 443
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

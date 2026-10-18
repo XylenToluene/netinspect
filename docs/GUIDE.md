@@ -69,7 +69,10 @@ netinspect делает это автоматически:
 | **Service** | Объект Kubernetes: постоянное имя (например `reviews`), за которым стоят поды приложения. |
 | **EndpointSlice** | Список реальных адресов подов за сервисом и их готовность (**ready**). |
 | **Route** | Объект OpenShift: публикует сервис наружу по имени хоста. |
-| **ServiceEntry, Sidecar, AuthorizationPolicy…** | Другие ресурсы Istio. netinspect находит их и показывает права на чтение; в граф пока входят только основные (см. раздел 15). |
+| **Subset** | Подмножество подов сервиса, описанное в DestinationRule по меткам (например, `version: v2`). VirtualService может направлять трафик в конкретный subset — так делают канареечные выкладки. |
+| **ServiceEntry** | Правило Istio, которое «регистрирует» в mesh внешний (или нестандартный внутренний) хост: адрес, порты, способ поиска адресов (`resolution`). |
+| **EnvoyFilter** | Низкоуровневая правка конфигурации прокси Envoy (например, вставка Lua-фильтра). Применяется к подам по меткам `workloadSelector`. |
+| **Sidecar, AuthorizationPolicy…** | Другие ресурсы Istio. netinspect находит их и показывает права на чтение; в граф пока не входят (см. раздел 15). |
 | **FQDN** | Полное имя сервиса внутри кластера: `reviews.prod.svc.cluster.local` = имя `reviews`, namespace `prod`, домен кластера `cluster.local`. |
 | **Wildcard-хост** | Хост со звёздочкой: `*.example.com` подходит для `a.example.com`, `a.b.example.com`. |
 
@@ -346,9 +349,11 @@ sequenceDiagram
 
 | Тип | Группа API | Версии (по приоритету) | Короткое имя |
 |---|---|---|---|
-| Gateway | networking.istio.io | v1, v1beta1 | gw |
-| VirtualService | networking.istio.io | v1, v1beta1 | vs |
-| DestinationRule | networking.istio.io | v1, v1beta1 | dr |
+| Gateway | networking.istio.io | v1, v1beta1, v1alpha3 | gw |
+| VirtualService | networking.istio.io | v1, v1beta1, v1alpha3 | vs |
+| DestinationRule (+ subsets) | networking.istio.io | v1, v1beta1, v1alpha3 | dr |
+| ServiceEntry | networking.istio.io | v1, v1beta1, v1alpha3 | se |
+| EnvoyFilter | networking.istio.io | v1alpha3 (другой нет) | ef |
 | Service | (основная группа) | v1 | svc |
 | EndpointSlice | discovery.k8s.io | v1 | eps |
 | Route | route.openshift.io | v1 | route (только в OpenShift) |
@@ -358,8 +363,9 @@ sequenceDiagram
 ### 7.3. Загрузка из кластера по шагам
 
 1. **Выбор версий** (`discover`). Для каждой группы спрашиваем у кластера, какие
-   версии он поддерживает, и берём первую подходящую из списка приоритетов. Так
-   приложение работает и со старыми (`v1beta1`), и с новыми (`v1`) версиями Istio.
+   версии он поддерживает, и **для каждого типа** берём первую подходящую из его
+   списка приоритетов. Так приложение работает и со старыми (`v1beta1`), и с новыми
+   (`v1`) версиями Istio, а EnvoyFilter читается из `v1alpha3`.
 2. **Пути запросов.** Для каждого типа и namespace:
    `/apis/<группа>/<версия>/namespaces/<ns>/<тип>`; для всех namespace —
    `/apis/<группа>/<версия>/<тип>`; для основной группы — `/api/v1/...`.
@@ -401,11 +407,16 @@ sequenceDiagram
 - **Бейдж** — короткая пометка на узле: хост, порт, `subset v1 ✓`, `3 ready`.
 - **Проблема** — текст, почему с узлом что-то не так.
 
-Колонки по ходу трафика:
+Колонки (слева направо):
 
 ```
-Gateway / Route  →  VirtualService  →  DestinationRule  →  Service / внешний хост  →  EndpointSlice
+EnvoyFilter │ Gateway / Route │ VirtualService │ DestinationRule │ Subset │ Service / ServiceEntry / внешний хост │ EndpointSlice
 ```
+
+Связи бывают трёх видов:
+- **трафик** (сплошная линия) — запрос идёт по этой ссылке;
+- **содержит** (тонкая линия) — DestinationRule → его subset;
+- **применяется** (пунктир цвета EnvoyFilter) — EnvoyFilter → Gateway, Service или subset.
 
 ### 8.2. Нормализация хостов (`core/hosts.py`)
 
@@ -432,9 +443,15 @@ Gateway / Route  →  VirtualService  →  DestinationRule  →  Service / вн�
 |---|---|---|
 | **Gateway** (информация) | Хосты из `spec.servers[].hosts` (формат `ns/хост` учитывается) и порты | Бейджи `*.example.com:443`, `tls SIMPLE` |
 | **Gateway → VirtualService** | Поле VS `spec.gateways`: `имя` (в namespace VS) или `ns/имя` | Gateway не найден → узел-заглушка с проблемой «не найден». Значение `mesh` даёт бейдж `mesh`. |
-| **VirtualService → Service** | `spec.http/tcp/tls[].route[].destination.host` → полное имя → Service с таким именем и namespace | Сервиса нет → заглушка «не найден». Подпись связи: subset, порт, вес (`v1 :9080 80%`). |
-| **VirtualService → внешний хост** | Имя назначения не оканчивается на `.svc.<домен>` | Отдельный узел ExternalHost — это не ошибка. |
-| **VirtualService → DestinationRule** | DR, чей `spec.host` (после нормализации) совпадает с назначением; сначала точные совпадения, затем со звёздочкой | Если в маршруте указан `subset`, он ищется в `spec.subsets` DR: бейдж `subset v1 ✓` или `subset v3 ✗` + проблема. Subset указан, а DR нет → заглушка DR. |
+| **VirtualService → Service** | `spec.http/tcp/tls[].route[].destination.host` → полное имя → Service с таким именем и namespace (маршрут **без** subset) | Сервиса нет → заглушка «не найден». Подпись связи: порт и вес (`:9080 80%`). |
+| **VirtualService → Subset → Service** | Маршрут с `destination.subset`: subset ищется в DR этого хоста | Найден — трафик идёт через узел subset. Не найден — бейдж DR `subset v3 ✗` + проблема, связь VS → DR с пометкой `v3 ✗`, маршрут ведёт прямо в сервис. Subset указан, а DR нет → заглушка DR. |
+| **VirtualService → DestinationRule** | Маршрут без subset: DR, чей `spec.host` совпадает с назначением (сначала точно, затем со звёздочкой) | DR применяет свои политики к хосту. |
+| **DestinationRule → Subset** | Каждый элемент `spec.subsets` становится узлом `DR:имя` с метками | Subset не используется ни одним VS → пометка «не используется». Дубль имени или subset без имени → проблема. Нет меток → пометка «все поды». |
+| **DestinationRule** (проверка) | `spec.host` | Хост в кластере, но ни Service, ни ServiceEntry с таким именем нет → проблема (опечатка в host). |
+| **VirtualService → ServiceEntry** | Хост назначения объявлен в `spec.hosts` ServiceEntry (точно или по звёздочке) | Для хоста кластера приоритет у Service. |
+| **ServiceEntry** (проверка) | `hosts`, `ports`, `resolution`, `endpoints` | Нет hosts или ports; `STATIC` без endpoints; `DNS` с хостом-звёздочкой без endpoints → проблема. Бейджи: порты, внешний/внутренний, resolution. |
+| **VirtualService → внешний хост** | Хост вне кластера и без ServiceEntry | Узел ExternalHost с пометкой «нет ServiceEntry» (это не ошибка: при политике `REGISTRY_ONLY` такой трафик будет заблокирован). |
+| **EnvoyFilter → Gateway / Service / Subset** | Метки `workloadSelector.labels` сравниваются с selector шлюза, с selector сервиса (в namespace фильтра; для `istio-system` — во всех) и с метками subset | Фильтр без selector → пометка «весь namespace» или «весь mesh» (в `istio-system`). Selector ни с чем не совпал → проблема. Нет `configPatches` → проблема. Бейджи: что и где патчится (`HTTP_FILTER @ SIDECAR_INBOUND (INSERT_BEFORE)`). |
 | **Route → Service** | `spec.to.name` и `spec.alternateBackends[].name` в namespace Route | Сервиса нет → заглушка «не найден». |
 | **Service → EndpointSlice** | EndpointSlice с меткой `kubernetes.io/service-name` = имя сервиса | Нет ни одного EndpointSlice → проблема «нет endpoints». Все адреса не готовы → проблема «0 ready». Сервисы типа ExternalName не проверяются. |
 
@@ -490,12 +507,12 @@ Gateway / Route  →  VirtualService  →  DestinationRule  →  Service / вн�
 ### 9.2. Страница «Граф» — как рисуется
 
 1. `load()` загружает `graph.json` и заполняет шапку (источник, число узлов и проблем).
-2. `layout()` раскладывает узлы по 5 колонкам. Внутри колонки узлы упорядочиваются
+2. `layout()` раскладывает узлы по 7 колонкам. Внутри колонки узлы упорядочиваются
    по средней позиции узлов, которые на них ссылаются (метод барицентра). Так
    уменьшается число пересечений линий.
 3. `redraw()` рисует колонки, линии-связи (плавные кривые со стрелками), подписи
-   (они раздвигаются, чтобы не накладываться) и карточки узлов: значок типа (GW, VS,
-   DR, SVC, EPS, RT, EXT), имя, namespace, бейджи и красный «!» при проблемах.
+   (они раздвигаются, чтобы не накладываться) и карточки узлов: значок типа (EF, GW,
+   RT, VS, DR, SUB, SVC, SE, EPS, EXT), имя, namespace, бейджи и красный «!» при проблемах.
 4. Взаимодействие: поиск подсвечивает узлы по имени или хосту; кнопки-фильтры
    скрывают типы; список namespace; колесо мыши — масштаб; перетаскивание — сдвиг;
    клик по узлу — панель деталей (проблемы, свойства, хосты, входящие и исходящие
@@ -679,10 +696,19 @@ Gateway / Route  →  VirtualService  →  DestinationRule  →  Service / вн�
 | `_link_virtualservice()` | Хосты VS, связи с Gateway, разбор назначений. |
 | `_destinations()` | Собирает все `route[].destination` из `http`, `tcp`, `tls`. |
 | `_link_destination()` | Для одного назначения: связь с Service или внешним хостом, поиск DR и проверка subset. |
-| `_target_for_host()` | По полному имени находит Service, создаёт заглушку или узел ExternalHost. |
+| `_target_for_host()` | По полному имени находит Service или ServiceEntry, создаёт заглушку или узел ExternalHost. |
 | `_find_destination_rules()` | Ищет DR для хоста: точные совпадения, затем со звёздочкой. |
 | `_check_subset()` | Есть ли subset в DR; ставит ✓ или ✗ и проблему. |
-| `_link_destinationrule()` | Бейдж хоста DR; проблема, если `spec.host` пуст. |
+| `_link_destinationrule()` | Бейджи хоста и TLS DR, проверка host (опечатка), создание узлов subset. |
+| `_add_subset_node()` | Узел subset: метки, своя trafficPolicy; связи DR → subset → сервис. |
+| `_subset_key()` | Ключ узла subset: `Subset/ns/dr:имя`. |
+| `_link_serviceentry()` | Бейджи и проверки ServiceEntry. |
+| `_find_service_entry()` | ServiceEntry для хоста: точное совпадение, затем по звёздочке. |
+| `_existing_target()` | Существующий Service или ServiceEntry для хоста (без создания узлов). |
+| `_link_envoyfilter()` | Бейджи патчей, поиск объектов по `workloadSelector`, проблемы. |
+| `_subsets_of_service()` | Subset-узлы, ведущие в сервис, с их метками (для EnvoyFilter). |
+| `_finalize()` | Проверки после разбора всего: пометка «не используется» у subset. |
+| `_subset_of()` | «Все метки A есть в B» — сравнение selector. |
 | `_link_route()` | Хост и TLS Route, связи с сервисами. |
 | `_link_service()` | Порты, ExternalName, связи с EndpointSlice, проверки готовности. |
 | `_ensure_missing()` | Создаёт узел-заглушку «не найден» и проблему со ссылкой на источник. |
@@ -879,14 +905,19 @@ python3 -m unittest discover -s tests
 |---|---|
 | `test_hosts.py` | Нормализация хостов и сравнение со звёздочкой (все случаи из раздела 8.2). |
 | `test_client.py` | HTTP-клиент: заголовки, постраничная загрузка, перевод ошибок 401/403/404/TLS, отсутствие токена в текстах ошибок, обязательная проверка сертификата; загрузка из кластера с запретом на тип. |
-| `test_builder.py` | Построение графа на тестовых манифестах: рабочая цепочка, несуществующий Gateway, отсутствующий subset, сервис без endpoints, ссылки между namespace, Route, внешний хост; чтение папки, очистка манифестов, Secret не загружается. |
+| `test_builder.py` | Построение графа на тестовых манифестах: рабочая цепочка через subset, неиспользуемый и отсутствующий subset, несуществующий Gateway, сервис без endpoints, ссылки между namespace, Route, ServiceEntry, внешний хост, EnvoyFilter; чтение папки, очистка манифестов, Secret не загружается; YAML-набор `tests/manifests` (если установлен PyYAML). |
 | `test_traverse.py` | Части графа по ресурсу и по хосту. |
 | `test_render.py` | Выгрузка для интерфейса, отсутствие встроенных скриптов (для CSP), отсутствие внешних ссылок, команды `graph` и `get`, понятная ошибка без токена. |
 | `test_server.py` | Веб-бэкенд против **фейкового кластера**: подключение, сессия, отключение, неверный токен, недоступный кластер, защита CSRF, лимит размера, раздача файлов без выхода за папку, динамическое обнаружение ресурсов Istio. |
 | `test_theme.py` | Контраст цветов (WCAG AA) в обеих темах, наличие шрифтов и лицензий, использование только известных цветов. |
 
 **Тестовые данные:**
-- `tests/fixtures/` — набор манифестов с намеренными ошибками.
+- `tests/fixtures/` — набор манифестов (JSON) с намеренными ошибками для автотестов.
+- `tests/manifests/` — YAML-манифесты для **тестового кластера**: настоящие Deployment,
+  Gateway, VirtualService, DestinationRule с subsets, ServiceEntry, EnvoyFilter, Route и
+  те же намеренные ошибки. Применяются через `oc apply -f tests/manifests/`, удаляются
+  через `oc delete namespace netinspect-demo`. Таблица «что должен показать netinspect» —
+  в `tests/manifests/README.md`.
 - `tests/fake_cluster.py` — маленький поддельный API кластера с Istio. Его можно
   запустить вручную (`python3 -m tests.fake_cluster 18443`) и подключиться к нему из
   интерфейса тестовым токеном `sha256~good-token-0001`.
@@ -911,9 +942,13 @@ python3 -m unittest discover -s tests
 ## 15. Ограничения и планы
 
 **Сейчас:**
-- В граф входят Gateway, VirtualService, DestinationRule, Service, EndpointSlice и Route.
-  Остальные ресурсы Istio (ServiceEntry, Sidecar, AuthorizationPolicy и др.) видны в
-  отчёте о подключении, но в связях графа пока не участвуют.
+- В граф входят Gateway, VirtualService, DestinationRule и его subsets, ServiceEntry,
+  EnvoyFilter, Service, EndpointSlice и Route. Остальные ресурсы Istio (Sidecar,
+  AuthorizationPolicy и др.) видны в отчёте о подключении, но в связях графа пока не
+  участвуют.
+- EnvoyFilter сопоставляется по меткам с selector сервисов, subset и шлюзов; поды
+  напрямую не читаются, поэтому фильтр для подов без Service будет помечен как
+  «ни с чем не совпадает».
 - Не учитываются `mirror`, `delegate`, `exportTo`, а также пересечение хостов VS и
   Gateway.
 - Граф строится командой `graph`, а не прямо из сессии веб-интерфейса.

@@ -1,0 +1,9 @@
+# Тестовый namespace для netinspect.
+# OpenShift Service Mesh 2.x: добавьте namespace в ServiceMeshMemberRoll (см. README.md рядом).
+# Istio / OpenShift Service Mesh 3: достаточно метки istio-injection.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netinspect-demo
+  labels:
+    istio-injection: enabled

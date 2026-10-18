@@ -30,10 +30,15 @@ class ResourceType:
         return f"{base}/{self.plural}"
 
 
+_ISTIO_VERSIONS = ("v1", "v1beta1", "v1alpha3")
+
 REGISTRY: tuple[ResourceType, ...] = (
-    ResourceType("Gateway", "networking.istio.io", ("v1", "v1beta1"), "gateways", ("gw",)),
-    ResourceType("VirtualService", "networking.istio.io", ("v1", "v1beta1"), "virtualservices", ("vs",)),
-    ResourceType("DestinationRule", "networking.istio.io", ("v1", "v1beta1"), "destinationrules", ("dr",)),
+    ResourceType("Gateway", "networking.istio.io", _ISTIO_VERSIONS, "gateways", ("gw",)),
+    ResourceType("VirtualService", "networking.istio.io", _ISTIO_VERSIONS, "virtualservices", ("vs",)),
+    ResourceType("DestinationRule", "networking.istio.io", _ISTIO_VERSIONS, "destinationrules", ("dr",)),
+    ResourceType("ServiceEntry", "networking.istio.io", _ISTIO_VERSIONS, "serviceentries", ("se",)),
+    # EnvoyFilter существует только в v1alpha3
+    ResourceType("EnvoyFilter", "networking.istio.io", ("v1alpha3",), "envoyfilters", ("ef",)),
     ResourceType("Service", "", ("v1",), "services", ("svc",)),
     ResourceType("EndpointSlice", "discovery.k8s.io", ("v1",), "endpointslices", ("eps", "endpointslice")),
     ResourceType("Route", "route.openshift.io", ("v1",), "routes", ("route", "rt"), optional=True),

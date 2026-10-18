@@ -1,0 +1,110 @@
+# EnvoyFilter. Все фильтры безопасны: вставляют Lua-фильтр, который ничего не делает.
+#   reviews-lua       — все поды reviews (selector app=reviews) → связь с Service reviews
+#   reviews-v2-lua    — только поды reviews версии v2 → связь с subset reviews:v2
+#   gateway-lua       — поды ingress-шлюза (istio=ingressgateway) → связь с Gateway.
+#                       Чтобы фильтр реально применился, его кладут в namespace шлюза
+#                       (например istio-system); здесь он в демо-namespace для наглядности.
+#   orphan-filter     — selector ни с чем не совпадает (ошибка)
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: reviews-lua
+  namespace: netinspect-demo
+spec:
+  workloadSelector:
+    labels: {app: reviews}
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter: {name: envoy.filters.http.router}
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_request(handle) end
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: reviews-v2-lua
+  namespace: netinspect-demo
+spec:
+  workloadSelector:
+    labels: {app: reviews, version: v2}
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter: {name: envoy.filters.http.router}
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_response(handle) end
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: gateway-lua
+  namespace: netinspect-demo
+spec:
+  workloadSelector:
+    labels: {istio: ingressgateway}
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter: {name: envoy.filters.http.router}
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_request(handle) end
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: orphan-filter
+  namespace: netinspect-demo
+spec:
+  workloadSelector:
+    labels: {app: payments-v9}
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter: {name: envoy.filters.http.router}
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_request(handle) end

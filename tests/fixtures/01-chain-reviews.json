@@ -73,6 +73,12 @@
             "labels": {
               "version": "v2"
             }
+          },
+          {
+            "name": "v3",
+            "labels": {
+              "version": "v3"
+            }
           }
         ]
       }

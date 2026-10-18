@@ -69,7 +69,7 @@
   // ---------- типы ресурсов: метка и цвет ----------
   var KIND_TOKENS = {
     Gateway: 'gateway', Route: 'route', VirtualService: 'vs', DestinationRule: 'dr',
-    Service: 'svc', EndpointSlice: 'eps'
+    Service: 'svc', EndpointSlice: 'eps', ServiceEntry: 'se', EnvoyFilter: 'ef'
   };
   var GROUP_TOKENS = {
     'networking.istio.io': 'vs', 'security.istio.io': 'dr', 'telemetry.istio.io': 'gateway',

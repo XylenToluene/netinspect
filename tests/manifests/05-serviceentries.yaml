@@ -1,0 +1,13 @@
+# Рабочий ServiceEntry: внешний API, на который ведёт VirtualService payments-egress.
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: payments
+  namespace: netinspect-demo
+spec:
+  hosts:
+    - api.payments.example.org
+  location: MESH_EXTERNAL
+  ports:
+    - {number: 443, name: tls, protocol: TLS}
+  resolution: DNS

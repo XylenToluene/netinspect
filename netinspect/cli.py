@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="не раздавать интерфейс — только /api/ (когда интерфейс раздаёт nginx)")
 
     p = sub.add_parser("get", parents=[common], help="вывести ресурсы одного типа")
-    p.add_argument("kind", metavar="KIND", help="тип: gw, vs, dr, svc, endpointslice, route или полное имя")
+    p.add_argument("kind", metavar="KIND", help="тип: gw, vs, dr, se, ef, svc, endpointslice, route или полное имя")
     _add_ns_args(p)
     p.add_argument("--from-dir", metavar="DIR", help="читать манифесты из каталога вместо кластера")
     p.add_argument("-o", "--output", choices=("table", "json", "yaml"), default="table")
@@ -208,6 +208,14 @@ def _generic_row(res: Resource) -> list[str]:
         info = f"service={res.labels.get('kubernetes.io/service-name', '')} ready={ready}/{len(eps)}"
     elif res.kind == "Route":
         info = f"{spec.get('host', '')} -> {(spec.get('to') or {}).get('name', '')}"
+    elif res.kind == "ServiceEntry":
+        hosts = ",".join(str(h) for h in spec.get("hosts") or [])
+        ports = ",".join(f"{p.get('number')}/{p.get('protocol', 'TCP')}" for p in spec.get("ports") or [])
+        info = f"{hosts} {ports} {spec.get('location', 'MESH_EXTERNAL')} resolution={spec.get('resolution', 'NONE')}"
+    elif res.kind == "EnvoyFilter":
+        labels = (spec.get("workloadSelector") or {}).get("labels") or {}
+        selector = ",".join(f"{k}={v}" for k, v in labels.items()) or "(весь namespace)"
+        info = f"selector={selector} patches={len(spec.get('configPatches') or [])}"
     return [res.namespace, res.name, info]
 
 

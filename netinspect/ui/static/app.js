@@ -243,15 +243,17 @@
         var x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2, x2 = b.x, y2 = b.y + NODE_H / 2;
         var dx = Math.max(60, (x2 - x1) / 2);
         var missing = byKey[e.target].missing || byKey[e.source].missing;
-        var g = el('g', { 'class': 'edge' + (missing ? ' missing' : '') }, gEdges);
+        var ekind = e.kind || 'traffic';
+        var marker = missing ? 'url(#arrow-bad)' : (ekind === 'policy' ? 'url(#arrow-policy)' : 'url(#arrow)');
+        var g = el('g', { 'class': 'edge ' + ekind + (missing ? ' missing' : '') }, gEdges);
         el('path', {
           d: 'M' + x1 + ',' + y1 + ' C' + (x1 + dx) + ',' + y1 + ' ' + (x2 - dx) + ',' + y2 + ' ' + x2 + ',' + y2,
-          'marker-end': missing ? 'url(#arrow-bad)' : 'url(#arrow)'
+          'marker-end': marker
         }, g);
         var lg = null;
         if (e.label) {
           // подпись — в промежутке перед целевой колонкой, поверх узлов
-          lg = el('g', { 'class': 'edge-label' + (missing ? ' missing' : '') }, gLabels);
+          lg = el('g', { 'class': 'edge-label ' + ekind + (missing ? ' missing' : '') }, gLabels);
           // правый край подписи — перед стрелкой, чтобы не закрывать целевой узел
           var p = bez(x1, y1, x2, y2, tForX(x1, x2, x2 - 14));
           var bg = el('rect', { rx: 5 }, lg);
@@ -272,7 +274,7 @@
           bg.setAttribute('x', box.x); bg.setAttribute('y', box.y);
           bg.setAttribute('width', box.w); bg.setAttribute('height', box.h);
         }
-        edgeEls.push({ edge: e, el: g, label: lg, path: g.firstChild, missing: missing });
+        edgeEls.push({ edge: e, el: g, label: lg, path: g.firstChild, marker: marker });
       });
       DATA.nodes.forEach(function (n) {
         var pos = positions[n.key];
@@ -333,7 +335,7 @@
         var on = !!state.selected && (x.edge.source === state.selected || x.edge.target === state.selected);
         x.el.classList.toggle('hl', on);
         if (x.label) x.label.classList.toggle('hl', on);
-        x.path.setAttribute('marker-end', on ? 'url(#arrow-hl)' : (x.missing ? 'url(#arrow-bad)' : 'url(#arrow)'));
+        x.path.setAttribute('marker-end', on ? 'url(#arrow-hl)' : x.marker);
         // подсвеченные рёбра — поверх остальных
         if (on) x.el.parentNode.appendChild(x.el);
       });

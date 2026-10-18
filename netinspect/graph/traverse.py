@@ -6,7 +6,7 @@ from collections import deque
 from typing import Iterable
 
 from netinspect.core.hosts import hosts_intersect
-from netinspect.core.model import Graph, make_key
+from netinspect.core.model import EDGE_CONTAINS, EDGE_POLICY, Graph, make_key
 from netinspect.core.resources import resolve_kind
 
 #: Типы, по хостам которых ищется точка входа ``--host``.
@@ -37,10 +37,14 @@ def subgraph(graph: Graph, start_keys: Iterable[str], leaf_keys: Iterable[str] =
     (против него) — без «разворотов», иначе от одного VirtualService через общий
     Gateway в подграф попали бы все его соседи. ``leaf_keys`` включаются
     в подграф, но не разворачиваются (например, Gateway, совпавший по хосту).
+    Дополнительно добавляются DestinationRule попавших subset и EnvoyFilter,
+    применяемые к попавшим узлам.
     """
     starts = [k for k in start_keys if k in graph.nodes]
     keep = _walk(graph, starts, forward=True) | _walk(graph, starts, forward=False)
     keep |= {k for k in leaf_keys if k in graph.nodes}
+    # «владельцы» и политики попавших узлов: DR для subset, EnvoyFilter для Gateway/Service/subset
+    keep |= {e.source for e in graph.edges if e.target in keep and e.kind in (EDGE_CONTAINS, EDGE_POLICY)}
     result = Graph()
     for key, node in graph.nodes.items():
         if key in keep:

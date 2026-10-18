@@ -1,0 +1,125 @@
+# Приложения и сервисы. Образ ubi9/httpd-24 запускается без root (подходит для OpenShift)
+# и слушает порт 8080. Если реестр Red Hat недоступен — замените image на любой
+# доступный веб-сервер, который слушает 8080.
+#
+# Намеренная ошибка: у Service "details" нет подов (нет Deployment) → «нет endpoints».
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v1
+  namespace: netinspect-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: reviews, version: v1}
+  template:
+    metadata:
+      labels: {app: reviews, version: v1}
+      annotations: {sidecar.istio.io/inject: "true"}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v2
+  namespace: netinspect-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: reviews, version: v2}
+  template:
+    metadata:
+      labels: {app: reviews, version: v2}
+      annotations: {sidecar.istio.io/inject: "true"}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratings-v1
+  namespace: netinspect-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ratings, version: v1}
+  template:
+    metadata:
+      labels: {app: ratings, version: v1}
+      annotations: {sidecar.istio.io/inject: "true"}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productpage-v1
+  namespace: netinspect-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: productpage, version: v1}
+  template:
+    metadata:
+      labels: {app: productpage, version: v1}
+      annotations: {sidecar.istio.io/inject: "true"}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews
+  namespace: netinspect-demo
+  labels: {app: reviews}
+spec:
+  selector: {app: reviews}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratings
+  namespace: netinspect-demo
+  labels: {app: ratings}
+spec:
+  selector: {app: ratings}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: productpage
+  namespace: netinspect-demo
+  labels: {app: productpage}
+spec:
+  selector: {app: productpage}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+# Намеренная ошибка: подов с app=details нет → у сервиса не будет endpoints.
+apiVersion: v1
+kind: Service
+metadata:
+  name: details
+  namespace: netinspect-demo
+  labels: {app: details}
+spec:
+  selector: {app: details}
+  ports: [{name: http, port: 8080, targetPort: 8080}]

@@ -46,6 +46,12 @@
   --kind-eps-soft: #F0F0F3;
   --kind-ext: #60646C;
   --kind-ext-soft: #FFFFFF;
+  --kind-subset: #7C40B0;
+  --kind-subset-soft: #F7EDFE;
+  --kind-se: #3A5BC7;
+  --kind-se-soft: #EDF2FE;
+  --kind-ef: #953EA3;
+  --kind-ef-soft: #FBEBFB;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --shadow-md: 0 1px 3px rgba(16, 24, 40, 0.06), 0 6px 16px -4px rgba(16, 24, 40, 0.08);
   --shadow-lg: 0 12px 32px -8px rgba(16, 24, 40, 0.18), 0 2px 6px rgba(16, 24, 40, 0.06);
@@ -102,6 +108,12 @@
     --kind-eps-soft: #232427;
     --kind-ext: #B0B4BA;
     --kind-ext-soft: #18191B;
+    --kind-subset: #D19DFF;
+    --kind-subset-soft: #2B1A3B;
+    --kind-se: #9EB1FF;
+    --kind-se-soft: #182449;
+    --kind-ef: #E796F3;
+    --kind-ef-soft: #351A35;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.45), 0 6px 16px -4px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);
@@ -156,6 +168,12 @@
   --kind-eps-soft: #232427;
   --kind-ext: #B0B4BA;
   --kind-ext-soft: #18191B;
+  --kind-subset: #D19DFF;
+  --kind-subset-soft: #2B1A3B;
+  --kind-se: #9EB1FF;
+  --kind-se-soft: #182449;
+  --kind-ef: #E796F3;
+  --kind-ef-soft: #351A35;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.45), 0 6px 16px -4px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);

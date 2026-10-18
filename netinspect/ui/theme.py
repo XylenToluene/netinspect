@@ -70,6 +70,12 @@ LIGHT: dict[str, str] = {
     "kind-eps-soft": "#F0F0F3",
     "kind-ext": "#60646C",
     "kind-ext-soft": "#FFFFFF",
+    "kind-subset": "#7C40B0",
+    "kind-subset-soft": "#F7EDFE",
+    "kind-se": "#3A5BC7",
+    "kind-se-soft": "#EDF2FE",
+    "kind-ef": "#953EA3",
+    "kind-ef-soft": "#FBEBFB",
     # тени и фокус
     "shadow-sm": "0 1px 2px rgba(16, 24, 40, 0.05)",
     "shadow-md": "0 1px 3px rgba(16, 24, 40, 0.06), 0 6px 16px -4px rgba(16, 24, 40, 0.08)",
@@ -125,6 +131,12 @@ DARK: dict[str, str] = {
     "kind-eps-soft": "#232427",
     "kind-ext": "#B0B4BA",
     "kind-ext-soft": "#18191B",
+    "kind-subset": "#D19DFF",
+    "kind-subset-soft": "#2B1A3B",
+    "kind-se": "#9EB1FF",
+    "kind-se-soft": "#182449",
+    "kind-ef": "#E796F3",
+    "kind-ef-soft": "#351A35",
     "shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.4)",
     "shadow-md": "0 1px 3px rgba(0, 0, 0, 0.45), 0 6px 16px -4px rgba(0, 0, 0, 0.5)",
     "shadow-lg": "0 16px 40px -8px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4)",
@@ -145,7 +157,8 @@ TEXT_PAIRS: tuple[tuple[str, str], ...] = (
     ("danger", "danger-soft"), ("danger", "surface"),
     ("kind-gateway", "kind-gateway-soft"), ("kind-route", "kind-route-soft"), ("kind-vs", "kind-vs-soft"),
     ("kind-dr", "kind-dr-soft"), ("kind-svc", "kind-svc-soft"), ("kind-eps", "kind-eps-soft"),
-    ("kind-ext", "kind-ext-soft"),
+    ("kind-ext", "kind-ext-soft"), ("kind-subset", "kind-subset-soft"), ("kind-se", "kind-se-soft"),
+    ("kind-ef", "kind-ef-soft"),
 )
 
 #: Оформление узлов графа: токен цвета, токен фона иконки, аббревиатура, пунктир.
@@ -157,6 +170,9 @@ NODE_STYLES: dict[str, dict[str, str | bool]] = {
     "Service": {"color": "kind-svc", "soft": "kind-svc-soft", "abbr": "SVC", "dashed": False},
     "EndpointSlice": {"color": "kind-eps", "soft": "kind-eps-soft", "abbr": "EPS", "dashed": False},
     "ExternalHost": {"color": "kind-ext", "soft": "kind-ext-soft", "abbr": "EXT", "dashed": True},
+    "Subset": {"color": "kind-subset", "soft": "kind-subset-soft", "abbr": "SUB", "dashed": False},
+    "ServiceEntry": {"color": "kind-se", "soft": "kind-se-soft", "abbr": "SE", "dashed": False},
+    "EnvoyFilter": {"color": "kind-ef", "soft": "kind-ef-soft", "abbr": "EF", "dashed": False},
 }
 
 DEFAULT_NODE_STYLE: dict[str, str | bool] = {"color": "kind-eps", "soft": "kind-eps-soft", "abbr": "?", "dashed": False}

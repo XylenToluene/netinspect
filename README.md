@@ -4,14 +4,17 @@
 Строит граф связей
 
 ```
-Gateway → VirtualService → DestinationRule
-                         → Service / внешний хост → EndpointSlice
+EnvoyFilter ┄┄применяется┄┄▶ Gateway / Service / subset
+Gateway → VirtualService → subset (DestinationRule) → Service / ServiceEntry / внешний хост → EndpointSlice
 Route (OpenShift) → Service
 ```
 
-и показывает его в веб-интерфейсе. Битые ссылки
-(несуществующий Gateway или Service, отсутствующий subset в DestinationRule,
-Service без endpoints) подсвечиваются.
+и показывает его в веб-интерфейсе. Поддерживаются Gateway, VirtualService,
+DestinationRule и его **subsets**, **ServiceEntry**, **EnvoyFilter**, Service,
+EndpointSlice и OpenShift Route. Подсвечиваются битые ссылки и ошибки
+конфигурации: несуществующий Gateway или Service, отсутствующий или
+неиспользуемый subset, опечатка в host у DestinationRule, ServiceEntry без
+endpoints, EnvoyFilter, который ни к чему не применяется, Service без endpoints.
 
 > **Полное руководство простым языком** — [docs/GUIDE.md](docs/GUIDE.md): термины,
 > схема работы, подключение к кластеру по шагам, обработка манифестов, описание
@@ -279,7 +282,8 @@ nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf
 
 Возможности страницы «Граф»:
 
-- колонки по направлению трафика: Gateway/Route → VirtualService → DestinationRule → Service/External → EndpointSlice;
+- колонки: EnvoyFilter → Gateway/Route → VirtualService → DestinationRule → Subset → Service/ServiceEntry/внешний хост → EndpointSlice;
+  связи EnvoyFilter показаны пунктиром;
 - клик по узлу — панель с бейджами, проблемами, связанными узлами (кликабельны) и
   манифестом (YAML с PyYAML, иначе JSON) с кнопкой «Копировать»;
 - поиск по имени или хосту (`/` — фокус в поле поиска), фильтр по namespace, чекбоксы по типам;
@@ -301,10 +305,16 @@ python -m netinspect get vs --from-dir tests/fixtures
 поддерживаются одиночные объекты, `kind: List` и многодокументный YAML. Удобно
 для разбора выгрузки `oc get vs,dr,gw,svc,endpointslices,routes -A -o json > dump.json`.
 
-Фикстуры покрывают: рабочую цепочку GW → VS → DR(v1, v2) → Service → EndpointSlice,
-VS со ссылкой на несуществующий Gateway, несуществующий subset, Service без
-endpoints, короткий и полный хост в разных namespace, wildcard-хост на Gateway,
-OpenShift Route → Service (в т.ч. несуществующий alternateBackend) и внешний хост.
+Фикстуры (`tests/fixtures`, JSON) покрывают: рабочую цепочку GW → VS → subset →
+Service → EndpointSlice, неиспользуемый subset, VS со ссылкой на несуществующий
+Gateway и subset, Service без endpoints, короткий и полный хост в разных namespace,
+wildcard-хост на Gateway, OpenShift Route → Service, ServiceEntry (рабочий, STATIC
+без endpoints, DNS с wildcard), DR для внешнего хоста, внешний хост без ServiceEntry,
+EnvoyFilter на сервис, subset, шлюз, весь mesh и «сироту».
+
+**Манифесты для тестового кластера** — `tests/manifests/` (YAML): тот же набор
+ситуаций с настоящими Deployment, применяется через `oc apply -f tests/manifests/`.
+Подробности — в `tests/manifests/README.md`.
 
 ## Необходимые права RBAC
 
@@ -370,8 +380,10 @@ tests/fake_cluster.py — фейковый API кластера с Istio для 
 ## Ограничения текущей версии
 
 - Учитываются `route[].destination` в `http`/`tcp`/`tls`; `mirror`, `delegate`,
-  `match[].gateways`, `exportTo` и `ServiceEntry` пока не анализируются
-  (хост вне кластера показывается как ExternalHost).
+  `match[].gateways` и `exportTo` пока не анализируются.
+- EnvoyFilter сопоставляется по меткам `workloadSelector` с selector сервисов,
+  метками subset и selector шлюзов (поды напрямую не читаются); `targetRefs`
+  только отображается.
 - Сопоставление VS ↔ Gateway идёт по `spec.gateways`; пересечение хостов VS и
   серверов Gateway не проверяется.
 - DestinationRule ищется по точному FQDN, затем по wildcard; правила видимости
@@ -380,8 +392,8 @@ tests/fake_cluster.py — фейковый API кластера с Istio для 
 
 ## Дальше
 
-1. **Граф в веб-интерфейсе по текущей сессии** — без `graph --web-dir`, с учётом всех
-   найденных ресурсов Istio (ServiceEntry, Sidecar, AuthorizationPolicy и др.).
+1. **Граф в веб-интерфейсе по текущей сессии** — без `graph --web-dir`, с учётом
+   остальных ресурсов Istio (Sidecar, AuthorizationPolicy и др.).
 2. **Проверка дублей и конфликтов:** несколько VS на один хост и Gateway,
    несколько DR на один host, пересекающиеся Route. Граф и `hosts.py` уже дают
    всё нужное — проверки лягут отдельным модулем поверх `Graph`.

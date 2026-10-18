@@ -1,0 +1,53 @@
+# DestinationRule и их subsets.
+#   reviews     — subsets v1, v2 используются; v3 объявлен, но не используется (пометка)
+#   ratings     — subset v1; VirtualService ratings ссылается ещё и на v3 (ошибка)
+#   payments    — DR для внешнего хоста из ServiceEntry, TLS к внешнему API
+#   revews-typo — опечатка в host: сервиса "revews" нет (ошибка)
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: reviews
+  namespace: netinspect-demo
+spec:
+  host: reviews
+  trafficPolicy:
+    loadBalancer: {simple: ROUND_ROBIN}
+  subsets:
+    - name: v1
+      labels: {version: v1}
+    - name: v2
+      labels: {version: v2}
+      trafficPolicy:
+        connectionPool:
+          http: {http1MaxPendingRequests: 100}
+    - name: v3
+      labels: {version: v3}
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ratings
+  namespace: netinspect-demo
+spec:
+  host: ratings.netinspect-demo.svc.cluster.local
+  subsets:
+    - name: v1
+      labels: {version: v1}
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: payments
+  namespace: netinspect-demo
+spec:
+  host: api.payments.example.org
+  trafficPolicy:
+    tls: {mode: SIMPLE}
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: revews-typo
+  namespace: netinspect-demo
+spec:
+  host: revews

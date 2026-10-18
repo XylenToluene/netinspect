@@ -1,0 +1,14 @@
+# Входной шлюз для хостов *.demo.example.com (wildcard).
+# selector должен совпадать с метками подов ingress-шлюза вашего mesh.
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: demo-gateway
+  namespace: netinspect-demo
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port: {number: 80, name: http, protocol: HTTP}
+      hosts:
+        - "*.demo.example.com"

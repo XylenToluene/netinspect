@@ -16,9 +16,15 @@ class TraverseTest(unittest.TestCase):
             {
                 "Gateway/prod/public-gw",
                 "VirtualService/prod/reviews",
-                "DestinationRule/prod/reviews",
+                "Subset/prod/reviews:v1",
+                "Subset/prod/reviews:v2",
+                "DestinationRule/prod/reviews",  # владелец subset
                 "Service/prod/reviews",
                 "EndpointSlice/prod/reviews-abc12",
+                # EnvoyFilter, применяемые к попавшим узлам
+                "EnvoyFilter/istio-system/gateway-lua",
+                "EnvoyFilter/prod/reviews-headers",
+                "EnvoyFilter/prod/reviews-v2-debug",
             },
         )
         # соседние VS через общий Gateway не попадают
@@ -62,7 +68,7 @@ class TraverseTest(unittest.TestCase):
     def test_host_subgraph_gateway_only(self) -> None:
         # хост покрыт wildcard Gateway, но VS для него нет
         sub = host_subgraph(self.g, "unknown.example.com")
-        self.assertEqual(set(sub.nodes), {"Gateway/prod/public-gw"})
+        self.assertEqual(set(sub.nodes), {"Gateway/prod/public-gw", "EnvoyFilter/istio-system/gateway-lua"})
 
     def test_parse_resource_ref(self) -> None:
         self.assertEqual(parse_resource_ref("vs/prod/reviews"), "VirtualService/prod/reviews")

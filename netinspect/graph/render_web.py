@@ -32,10 +32,12 @@ THEME_FILE = "theme.css"
 
 #: Колонки раскладки по направлению трафика.
 COLUMNS: list[dict[str, Any]] = [
+    {"title": "EnvoyFilter", "kinds": ["EnvoyFilter"]},
     {"title": "Gateway / Route", "kinds": ["Gateway", "Route"]},
     {"title": "VirtualService", "kinds": ["VirtualService"]},
     {"title": "DestinationRule", "kinds": ["DestinationRule"]},
-    {"title": "Service / External", "kinds": ["Service", "ExternalHost"]},
+    {"title": "Subset", "kinds": ["Subset"]},
+    {"title": "Service / ServiceEntry", "kinds": ["Service", "ServiceEntry", "ExternalHost"]},
     {"title": "EndpointSlice", "kinds": ["EndpointSlice"]},
 ]
 

@@ -412,6 +412,7 @@ svg#canvas.dragging { cursor: grabbing; }
 }
 .legend .ln { width: 20px; height: 0; border-top: 2px solid var(--border-strong); display: inline-block; vertical-align: middle; }
 .legend .ln.bad { border-top: 2px dashed var(--danger); }
+.legend .ln.policy { border-top: 2px dotted var(--kind-ef); }
 .legend .bang { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--danger-solid); color: var(--on-accent); font-size: 10px; font-weight: 700; vertical-align: middle; }
 .load-error { margin: 0; }
 
@@ -424,11 +425,15 @@ svg#canvas.dragging { cursor: grabbing; }
 .arrow-ok { fill: var(--border-strong); }
 .arrow-bad { fill: var(--danger); }
 .arrow-hl { fill: var(--accent); }
+.arrow-policy { fill: var(--kind-ef); }
 .edge path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; transition: stroke .12s; }
+.edge.policy path { stroke: var(--kind-ef); stroke-dasharray: 2 4; stroke-width: 1.4; }
+.edge.contains path { stroke-width: 1.1; }
 .edge.missing path { stroke: var(--danger); stroke-dasharray: 5 4; }
 .edge.hl path { stroke: var(--accent); stroke-width: 2.25; }
 .edge-label rect { fill: var(--surface); stroke: var(--border); }
 .edge-label text { font-size: 10.5px; fill: var(--text-muted); font-family: var(--font-mono); }
+.edge-label.policy text { fill: var(--kind-ef); }
 .edge-label.missing rect { stroke: var(--danger-border); }
 .edge-label.missing text { fill: var(--danger); }
 .edge-label.hl rect { stroke: var(--accent-border); fill: var(--accent-soft); }
