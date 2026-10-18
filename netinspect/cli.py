@@ -11,7 +11,7 @@ from typing import NoReturn, Sequence, TextIO
 from netinspect import __version__
 from netinspect.core.access import connection_report
 from netinspect.core.client import ApiClient
-from netinspect.core.config import DEFAULT_TIMEOUT, ENV_CA, ENV_SERVER, ENV_TOKEN, build_config
+from netinspect.core.config import DEFAULT_TIMEOUT, ENV_SERVER, ENV_TOKEN, build_config
 from netinspect.core.errors import NetinspectError
 from netinspect.core.fetcher import ClusterSource, DirectorySource, Source, default_kinds, yaml
 from netinspect.core.hosts import DEFAULT_DOMAIN, normalize, to_fqdn
@@ -41,9 +41,6 @@ def _add_connection_args(p: argparse.ArgumentParser, server_required: bool = Fal
         metavar="NAME",
         help=f"имя переменной окружения с токеном (по умолчанию {ENV_TOKEN}, иначе ввод с клавиатуры)",
     )
-    tls = g.add_mutually_exclusive_group()
-    tls.add_argument("--ca-file", metavar="PATH", help=f"CA-сертификат API (или {ENV_CA})")
-    tls.add_argument("--insecure", action="store_true", help="не проверять сертификат сервера (только для отладки)")
     g.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="таймаут запроса, с (по умолчанию 15)")
     g.add_argument("--proxy", metavar="URL", help="HTTP(S)-прокси")
 
@@ -120,13 +117,9 @@ def _client(args: argparse.Namespace, err: TextIO) -> ApiClient:
     config = build_config(
         server=args.server,
         token_env=args.token_env,
-        ca_file=args.ca_file,
-        insecure=args.insecure,
         timeout=args.timeout,
         proxy=args.proxy,
     )
-    if config.insecure:
-        print("ВНИМАНИЕ: проверка TLS-сертификата отключена (--insecure)", file=err)
     log.debug("подключение: %r", config)
     return ApiClient(config)
 

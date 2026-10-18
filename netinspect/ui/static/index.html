@@ -40,7 +40,6 @@
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
-  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
 </svg>
 <a class="skip-link" href="#main">Перейти к содержимому</a>
 <aside class="sidebar" aria-label="Навигация">
@@ -77,7 +76,7 @@
   <header class="page-header">
     <div>
       <h1>Подключение к кластеру</h1>
-      <p class="page-sub">Вставьте команду <code class="inline">oc login</code> — netinspect проверит доступ, найдёт ресурсы Istio и права на чтение.</p>
+      <p class="page-sub">Вставьте команду <code class="inline">oc login</code> — netinspect проверит доступ по токену, найдёт ресурсы Istio и права на чтение.</p>
     </div>
     <div class="page-actions">
       <button type="button" class="btn btn-danger-ghost" id="disconnect-btn" hidden><svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg><span>Отключиться</span></button>
@@ -115,30 +114,6 @@
             <p class="field-hint">В терминале: <code class="inline">oc whoami -t</code></p>
           </div>
 
-          <details class="disclosure" id="advanced">
-            <summary>Дополнительно <span class="muted">namespace, TLS</span><svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-            <div class="disclosure-body">
-              <div class="field">
-                <label class="field-label" for="namespace">Namespace <span class="opt">— для проверки прав</span></label>
-                <input id="namespace" class="input mono" type="text" spellcheck="false" placeholder="все namespace">
-              </div>
-              <div class="field">
-                <label class="field-label" for="ca-cert">CA-сертификат кластера <span class="opt">(PEM)</span></label>
-                <textarea id="ca-cert" class="textarea mono" rows="3" spellcheck="false"
-                  placeholder="-----BEGIN CERTIFICATE-----"></textarea>
-                <div class="file-row"><input id="ca-file" type="file" accept=".crt,.pem,.cer,text/plain" aria-label="Загрузить CA из файла"></div>
-                <p class="field-hint">Нужен, если сервер netinspect не доверяет CA кластера.</p>
-              </div>
-              <label class="check" for="insecure">
-                <input id="insecure" type="checkbox">
-                <span>Не проверять сертификат <span class="opt">(только для отладки)</span></span>
-              </label>
-              <div class="callout callout-warning" id="insecure-warn" hidden>
-                <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-                <div class="callout-body"><span class="callout-text">Соединение можно перехватить — токен может утечь.</span></div>
-              </div>
-            </div>
-          </details>
 
           <button type="submit" class="btn btn-primary btn-block" id="connect-btn">
             <span class="spinner" aria-hidden="true"></span><span class="btn-label">Проверить подключение</span>

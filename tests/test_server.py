@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import ssl
 import tempfile
 import threading
 import unittest
@@ -55,20 +56,14 @@ class ConnectionReportTest(unittest.TestCase):
 
 class ParseRequestTest(unittest.TestCase):
     def test_ok(self) -> None:
-        cfg, ns = parse_connect_request(
-            {"server": "api.x:6443", "token": "Bearer abc", "namespace": "prod", "insecure": False}
-        )
+        cfg = parse_connect_request({"server": "api.x:6443", "token": "Bearer abc"})
         self.assertEqual(cfg.server, "https://api.x:6443")
         self.assertEqual(cfg.token, "abc")
-        self.assertEqual(ns, "prod")
 
     def test_errors(self) -> None:
         bad = [
             {"token": "t"},
             {"server": "https://a"},
-            {"server": "https://a", "token": "t", "namespace": "Bad_NS"},
-            {"server": "https://a", "token": "t", "caCert": "not a pem"},
-            {"server": "https://a", "token": "t", "insecure": "yes"},
             {"server": "https://a", "token": 123},
             {"server": "https://a b", "token": "t"},
             {"server": "https://a", "token": "two words"},
@@ -77,12 +72,13 @@ class ParseRequestTest(unittest.TestCase):
             with self.assertRaises(ConfigError, msg=body):
                 parse_connect_request(body)
 
-    def test_insecure_drops_ca(self) -> None:
-        cfg, _ = parse_connect_request(
-            {"server": "https://a", "token": "t", "insecure": True, "caCert": "-----BEGIN CERTIFICATE-----"}
+    def test_tls_fields_ignored(self) -> None:
+        # старые поля TLS/namespace больше ни на что не влияют: проверка сертификата не отключается
+        cfg = parse_connect_request(
+            {"server": "https://a", "token": "t", "insecure": True, "caCert": "x", "namespace": "prod"}
         )
-        self.assertTrue(cfg.insecure)
-        self.assertIsNone(cfg.ca_data)
+        client = ApiClient(cfg)
+        self.assertEqual(client._ssl_context.verify_mode, ssl.CERT_REQUIRED)
 
 
 class SessionStoreTest(unittest.TestCase):
@@ -148,7 +144,7 @@ class ServerTest(unittest.TestCase):
         return status, payload, resp_headers
 
     def connect_body(self, **over: Any) -> dict[str, Any]:
-        body = {"server": self.cluster.url, "token": GOOD_TOKEN, "namespace": "prod"}
+        body = {"server": self.cluster.url, "token": GOOD_TOKEN}
         body.update(over)
         return body
 
@@ -199,14 +195,6 @@ class ServerTest(unittest.TestCase):
         status, data, _ = self.call("POST", "/api/connect", self.connect_body(server="http://127.0.0.1:9"))
         self.assertEqual(status, 502)
         self.assertEqual(data["kind"], "network")
-
-    def test_bad_pem(self) -> None:
-        status, data, _ = self.call(
-            "POST", "/api/connect",
-            self.connect_body(caCert="-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----"),
-        )
-        self.assertEqual(data["kind"], "tls")
-        self.assertIn(status, (400, 502))
 
     def test_input_errors(self) -> None:
         status, data, _ = self.call("POST", "/api/connect", {"server": "", "token": ""})

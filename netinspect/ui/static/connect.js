@@ -107,7 +107,6 @@
       m = t.match(/\blogin\s+(['"]?https?:\/\/\S+)/);
       if (m) res.server = unquote(m[1]);
     }
-    if (/--insecure-skip-tls-verify(?:=true)?(?:\s|$)/.test(t)) res.insecure = true;
     if (!res.token && !res.server) {
       if (/^['"]?https?:\/\/\S+$/.test(t)) res.server = unquote(t);
       else if (/^(Bearer\s+)?\S+$/.test(t)) res.token = t.replace(/^Bearer\s+/, '');
@@ -120,7 +119,6 @@
     var found = [];
     if (parsed.server) { fields.server.value = parsed.server; found.push('адрес API'); }
     if (parsed.token) { fields.token.value = parsed.token; found.push('токен'); }
-    if (parsed.insecure) { fields.insecure.checked = true; $('advanced').open = true; syncInsecure(); found.push('без проверки TLS'); }
     clear(parseResult);
     if (!fields.login.value.trim()) { parseResult.hidden = true; return; }
     parseResult.hidden = false;
@@ -135,12 +133,6 @@
       icon('alert-circle', 'icon', b);
       h('span', '', 'не распознано — нужна строка oc login --token=… --server=…', b);
     }
-  }
-
-  function syncInsecure() {
-    $('insecure-warn').hidden = !fields.insecure.checked;
-    fields.ca.disabled = fields.insecure.checked;
-    fields.caFile.disabled = fields.insecure.checked;
   }
 
   function setConnected(report) {
@@ -214,8 +206,8 @@
   };
   var ERROR_HINTS = {
     auth: [['Токен истёк или скопирован не полностью.'], ['Получите новый: ', 'oc whoami -t', ' или «Copy login command» в консоли.']],
-    tls: [['Откройте «Дополнительно» и вставьте CA-сертификат кластера.'],
-          ['Получить CA: ', 'oc get configmap kube-root-ca.crt -n default -o jsonpath=\'{.data.ca\\.crt}\'']],
+    tls: [['Сертификат API проверяется по доверенным CA системы, на которой запущен netinspect.'],
+          ['Добавьте CA кластера в систему — инструкция в README, раздел «TLS-сертификат кластера».']],
     network: [['Проверьте адрес API — обычно ', 'https://api.<кластер>:6443', '.'],
               ['Сервер netinspect должен видеть API кластера: прокси, firewall, VPN.']],
     backend: [['Запустите: ', 'python -m netinspect serve'],
@@ -271,7 +263,7 @@
 
     var stats = h('div', 'stats', null, resultBody);
     stat(stats, 'server', 'Версия кластера', rep.version, rep.openshift ? 'OpenShift' : 'Kubernetes', true);
-    stat(stats, 'user', 'Пользователь', rep.user || 'n/a', rep.namespace ? 'права в namespace ' + rep.namespace : 'права на уровне кластера');
+    stat(stats, 'user', 'Пользователь', rep.user || 'n/a', 'права на уровне кластера');
     stat(stats, 'layers', 'Ресурсы Istio', String(istio.length),
       rep.istioGroups.length ? rep.istioGroups.length + ' ' + plural(rep.istioGroups.length, 'группа', 'группы', 'групп') + ' API' : 'Istio не найден');
     var accessSub = h('div', '', null);
@@ -375,10 +367,7 @@
     ev.preventDefault();
     var body = {
       server: fields.server.value.trim(),
-      token: fields.token.value.trim(),
-      namespace: fields.namespace.value.trim(),
-      insecure: fields.insecure.checked,
-      caCert: fields.insecure.checked ? '' : fields.ca.value.trim()
+      token: fields.token.value.trim()
     };
     if (!body.server || !body.token) {
       showError('input', !body.server ? 'Укажите адрес API кластера.' : 'Укажите токен.');
@@ -391,7 +380,6 @@
       if (!data.ok) {
         showError(data.kind, data.error);
         if (data.kind === 'auth') fields.token.focus();
-        if (data.kind === 'tls') $('advanced').open = true;
         return;
       }
       // токен больше не нужен в браузере — он хранится в сессии на сервере
@@ -413,20 +401,10 @@
     }, function (err) { showError(err.kind || 'backend', err.message); });
   }
 
-  function onCaFile() {
-    var file = fields.caFile.files && fields.caFile.files[0];
-    if (!file) return;
-    if (file.size > 256 * 1024) { showError('input', 'Файл CA слишком большой.'); return; }
-    var reader = new FileReader();
-    reader.onload = function () { fields.ca.value = String(reader.result || ''); };
-    reader.readAsText(file);
-  }
-
   function init() {
     form = $('connect-form');
     fields = {
-      login: $('login-cmd'), server: $('server'), token: $('token'), namespace: $('namespace'),
-      ca: $('ca-cert'), caFile: $('ca-file'), insecure: $('insecure')
+      login: $('login-cmd'), server: $('server'), token: $('token')
     };
     resultBody = $('result-body');
     connectBtn = $('connect-btn');
@@ -434,8 +412,6 @@
     parseResult = $('parse-result');
 
     fields.login.addEventListener('input', onLoginInput);
-    fields.insecure.addEventListener('change', syncInsecure);
-    fields.caFile.addEventListener('change', onCaFile);
     form.addEventListener('submit', onSubmit);
     disconnectBtn.addEventListener('click', onDisconnect);
     var toggle = $('toggle-token');

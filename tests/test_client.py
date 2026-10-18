@@ -101,8 +101,6 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.server, SERVER)
         with self.assertRaises(ConfigError):
             build_config(None, env={"NETINSPECT_TOKEN": TOKEN})
-        with self.assertRaises(ConfigError):
-            build_config(SERVER, ca_file="/nonexistent/ca.crt", env={"NETINSPECT_TOKEN": TOKEN})
 
 
 class ClientTest(unittest.TestCase):
@@ -166,8 +164,8 @@ class ClientTest(unittest.TestCase):
 
     def test_tls(self) -> None:
         err = urllib.error.URLError(ssl.SSLCertVerificationError("certificate verify failed"))
-        self._assert_raises(err, TLSError, "--ca-file")
-        self._assert_raises(ssl.SSLError("bad"), TLSError, "--ca-file")
+        self._assert_raises(err, TLSError, "системному хранилищу")
+        self._assert_raises(ssl.SSLError("bad"), TLSError, "README")
 
     def test_connection_refused(self) -> None:
         self._assert_raises(urllib.error.URLError(ConnectionRefusedError("refused")), ApiError)
@@ -179,9 +177,11 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(client.get("/a", {"x": "1"}), {"a": 1})
             self.assertTrue(m.call_args[0][0].full_url.endswith("/a?x=1"))
 
-    def test_insecure_context(self) -> None:
-        client = ApiClient(ConnectionConfig(server=SERVER, token=TOKEN, insecure=True))
-        self.assertEqual(client._ssl_context.verify_mode, ssl.CERT_NONE)
+    def test_certificate_always_verified(self) -> None:
+        # подключение только по токену; сертификат API — по системному хранилищу CA
+        client = ApiClient(ConnectionConfig(server=SERVER, token=TOKEN))
+        self.assertEqual(client._ssl_context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(client._ssl_context.check_hostname)
 
 
 class AccessAndDiscoveryTest(unittest.TestCase):

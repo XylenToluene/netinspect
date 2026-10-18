@@ -22,7 +22,6 @@ import ipaddress
 import json
 import logging
 import os
-import re
 import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,7 +65,6 @@ log = logging.getLogger(__name__)
 COOKIE_NAME = "netinspect_session"
 CSRF_HEADER = "X-Netinspect"
 MAX_BODY = 512 * 1024  # CA-бандл может быть большим
-_NAMESPACE_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 
 
 class ApiFailure(Exception):
@@ -100,8 +98,12 @@ def _failure_from(exc: Exception) -> ApiFailure:
     return ApiFailure(HTTPStatus.INTERNAL_SERVER_ERROR, "internal", "внутренняя ошибка сервера")
 
 
-def parse_connect_request(body: dict[str, Any]) -> tuple[ConnectionConfig, str | None]:
-    """Проверить тело ``POST /api/connect`` и собрать конфигурацию подключения."""
+def parse_connect_request(body: dict[str, Any]) -> ConnectionConfig:
+    """Проверить тело ``POST /api/connect`` (адрес API и токен) и собрать конфигурацию.
+
+    Сертификат API проверяется по системному хранилищу доверенных CA; права —
+    на уровне всего кластера.
+    """
 
     def text(name: str) -> str:
         value = body.get(name)
@@ -117,23 +119,7 @@ def parse_connect_request(body: dict[str, Any]) -> tuple[ConnectionConfig, str |
         raise ConfigError("укажите адрес API кластера, например https://api.cluster.example:6443")
     if not token:
         raise ConfigError("укажите токен (oc whoami -t)")
-    ca_cert = text("caCert") or None
-    if ca_cert and "BEGIN CERTIFICATE" not in ca_cert:
-        raise ConfigError("CA-сертификат должен быть в формате PEM (-----BEGIN CERTIFICATE-----)")
-    insecure = body.get("insecure", False)
-    if not isinstance(insecure, bool):
-        raise ConfigError("поле insecure должно быть true/false")
-    namespace = text("namespace") or None
-    if namespace and not _NAMESPACE_RE.match(namespace):
-        raise ConfigError(f"некорректное имя namespace: {namespace!r}")
-    config = ConnectionConfig(
-        server=server,
-        token=token,
-        ca_data=None if insecure else ca_cert,
-        insecure=insecure,
-        timeout=DEFAULT_TIMEOUT,
-    )
-    return config, namespace
+    return ConnectionConfig(server=server, token=token, timeout=DEFAULT_TIMEOUT)
 
 
 class NetinspectServer(ThreadingHTTPServer):
@@ -206,9 +192,8 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _connect(self, body: dict[str, Any]) -> None:
         try:
-            config, namespace = parse_connect_request(body)
-            client = ApiClient(config)
-            report = connection_report(client, namespace)
+            client = ApiClient(parse_connect_request(body))
+            report = connection_report(client)
         except ApiFailure:
             raise
         except Exception as exc:  # noqa: BLE001 - ошибки ядра переводятся в ответ

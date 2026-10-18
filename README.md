@@ -54,8 +54,10 @@ OpenShift: меню пользователя → «Copy login command». Под�
 EnvoyFilter, WorkloadEntry, AuthorizationPolicy, PeerAuthentication,
 RequestAuthentication, Telemetry и т.д.
 
-Если появилась ошибка TLS, вставьте CA кластера в блок «TLS-сертификат кластера» (текстом или
-файлом). Получить CA: `oc get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}'`.
+Подключение идёт только по токену: в интерфейсе нет настроек сертификата и
+namespace, права проверяются на уровне всего кластера. Сертификат API кластера
+проверяется по доверенным CA системы. Если появилась ошибка TLS, см. раздел
+«TLS-сертификат кластера» ниже.
 
 **Куда уходит токен.** Браузер отправляет токен один раз, в `POST /api/connect`.
 Бэкенд держит его в памяти на время сессии: по умолчанию 8 часов бездействия,
@@ -89,7 +91,7 @@ RequestAuthentication, Telemetry и т.д.
 
 ## Подключение к кластеру из командной строки
 
-Нужны адрес API, личный токен и (желательно) CA-сертификат API.
+Нужны адрес API и личный токен.
 
 **Токен.** Получите его после `oc login`:
 
@@ -110,17 +112,32 @@ shell. Порядок поиска:
 **Адрес API:** `--server https://api.cluster.example:6443` или `NETINSPECT_SERVER`
 (узнать: `oc whoami --show-server`).
 
-**CA:** `--ca-file ca.crt` или `NETINSPECT_CA`. Получить CA можно, например, так:
+### TLS-сертификат кластера
+
+Сертификат API кластера всегда проверяется: и в веб-интерфейсе, и в командной
+строке. Проверка идёт по доверенным CA операционной системы — так же, как у `oc`
+и браузера. Отключить проверку нельзя, указывать CA вручную не нужно.
+
+Если появилась «Ошибка TLS-сертификата», значит CA кластера не доверен на машине,
+где запущен netinspect. Его добавляют в систему один раз:
 
 ```bash
-oc config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > ca.crt
-# или из ConfigMap, доступного всем аутентифицированным пользователям:
-oc get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}' > ca.crt
+# получить CA кластера (после oc login)
+oc config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > cluster-ca.crt
+
+# RHEL / CentOS / Fedora
+sudo cp cluster-ca.crt /etc/pki/ca-trust/source/anchors/ && sudo update-ca-trust
+# Debian / Ubuntu
+sudo cp cluster-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates
 ```
 
-Если CA кластера уже в системном хранилище, `--ca-file` не нужен. Флаг
-`--insecure` отключает проверку сертификата — только для отладки, с
-предупреждением в stderr.
+Без прав root можно собрать свой бандл и указать его через стандартную
+переменную OpenSSL `SSL_CERT_FILE`:
+
+```bash
+cat /etc/ssl/certs/ca-certificates.crt cluster-ca.crt > ~/netinspect-ca.pem   # путь к системному бандлу зависит от ОС
+SSL_CERT_FILE=~/netinspect-ca.pem python -m netinspect serve
+```
 
 Прочее: `--timeout` (по умолчанию 15 с), `--proxy URL`. Без `--proxy` действуют
 стандартные `HTTPS_PROXY` / `NO_PROXY`.
@@ -130,7 +147,7 @@ oc get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}' > ca.
 ### connect — проверка подключения
 
 ```bash
-python -m netinspect connect --server https://api.cluster.example:6443 --ca-file ca.crt -n prod
+python -m netinspect connect --server https://api.cluster.example:6443 -n prod
 ```
 
 Выводит версию кластера (`/version`), пользователя (`user.openshift.io/users/~`,

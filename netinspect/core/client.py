@@ -52,17 +52,8 @@ class ApiClient:
 
     @staticmethod
     def _make_ssl_context(config: ConnectionConfig) -> ssl.SSLContext:
-        if config.insecure:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            return ctx
-        if config.ca_data:
-            try:
-                return ssl.create_default_context(cadata=config.ca_data)
-            except (ssl.SSLError, ValueError) as exc:
-                raise TLSError(f"не удалось прочитать CA-сертификат (PEM): {exc}") from None
-        return ssl.create_default_context(cafile=config.ca_file)
+        """Проверка сертификата API по системному хранилищу доверенных CA."""
+        return ssl.create_default_context()
 
     # --- публичное API -------------------------------------------------
 
@@ -142,8 +133,8 @@ class ApiClient:
     def _tls_error(self, exc: ssl.SSLError, path: str) -> TLSError:
         return TLSError(
             f"ошибка TLS при подключении к {self._config.server}: {exc}. "
-            "Укажите CA кластера через --ca-file (или NETINSPECT_CA); "
-            "--insecure — только для отладки",
+            "Сертификат API проверяется по системному хранилищу доверенных CA — "
+            "добавьте CA кластера в систему (см. README, раздел «TLS-сертификат кластера»)",
             path=path,
         )
 

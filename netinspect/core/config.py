@@ -12,7 +12,6 @@ from netinspect.core.errors import ConfigError
 
 ENV_TOKEN = "NETINSPECT_TOKEN"
 ENV_SERVER = "NETINSPECT_SERVER"
-ENV_CA = "NETINSPECT_CA"
 DEFAULT_TIMEOUT = 15.0
 
 
@@ -31,12 +30,8 @@ class ConnectionConfig:
 
     server: str
     token: str = field(repr=False)
-    ca_file: str | None = None
-    insecure: bool = False
     timeout: float = DEFAULT_TIMEOUT
     proxy: str | None = None
-    #: CA в формате PEM (текстом) — альтернатива ``ca_file``, используется веб-интерфейсом.
-    ca_data: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.server = self.server.strip().rstrip("/")
@@ -59,8 +54,6 @@ class ConnectionConfig:
     def __repr__(self) -> str:
         return (
             f"ConnectionConfig(server={self.server!r}, token={mask_token(self.token)!r}, "
-            f"ca_file={self.ca_file!r}, ca_data={'<pem>' if self.ca_data else None}, "
-            f"insecure={self.insecure!r}, "
             f"timeout={self.timeout!r}, proxy={self.proxy!r})"
         )
 
@@ -95,8 +88,6 @@ def resolve_token(
 def build_config(
     server: str | None,
     token_env: str | None = None,
-    ca_file: str | None = None,
-    insecure: bool = False,
     timeout: float = DEFAULT_TIMEOUT,
     proxy: str | None = None,
     env: Mapping[str, str] | None = None,
@@ -107,10 +98,7 @@ def build_config(
     server = server or env.get(ENV_SERVER)
     if not server:
         raise ConfigError("не задан адрес API: --server или NETINSPECT_SERVER")
-    ca_file = ca_file or env.get(ENV_CA) or None
-    if ca_file and not os.path.isfile(ca_file):
-        raise ConfigError(f"файл CA не найден: {ca_file}")
     token = resolve_token(token_env, env, prompt)
     return ConnectionConfig(
-        server=server, token=token, ca_file=ca_file, insecure=insecure, timeout=timeout, proxy=proxy
+        server=server, token=token, timeout=timeout, proxy=proxy
     )
