@@ -8,7 +8,7 @@ from unittest import mock
 
 from netinspect import cli
 from netinspect.core.model import Graph, Node, Resource
-from netinspect.graph.render_html import render_html, safe_json
+from netinspect.graph.render_web import export_web
 from netinspect.graph.render_text import SEEN_MARK, render_summary, render_tree
 from netinspect.ui import theme
 from netinspect.ui.theme import Ansi, color_enabled
@@ -64,52 +64,101 @@ class TextRenderTest(unittest.TestCase):
             self.assertFalse(color_enabled(tty))
 
 
-class HtmlRenderTest(unittest.TestCase):
+class WebExportTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.g = load_fixture_graph()
-        cls.page = render_html(cls.g, server="dir:fixtures", warnings=["<b>warn</b>"])
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = cls.tmp.name
+        cls.written = export_web(cls.g, cls.out, server="dir:fixtures", warnings=["<b>warn</b>"])
 
-    def test_self_contained(self) -> None:
-        self.assertNotRegex(self.page, r"<(script|link|img)[^>]+(src|href)=")
-        self.assertNotIn("@import", self.page)
-        urls = set(re.findall(r"https?://[^\s\"'<>)]+", self.page))
-        self.assertEqual(urls, {"http://www.w3.org/2000/svg"})
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tmp.cleanup()
 
-    def test_palette(self) -> None:
+    def read(self, name: str) -> str:
+        with open(os.path.join(self.out, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_files(self) -> None:
+        self.assertEqual(
+            sorted(os.listdir(self.out)),
+            ["app.js", "graph.json", "index.html", "style.css", "theme.css"],
+        )
+        self.assertEqual(len(self.written), 5)
+
+    def test_index_has_no_inline_code(self) -> None:
+        page = self.read("index.html")
+        # строгий CSP nginx: никаких inline-скриптов, стилей и style-атрибутов
+        self.assertNotRegex(page, r"<script(?![^>]*\bsrc=)[^>]*>")
+        self.assertNotIn("<style", page)
+        self.assertNotIn("style=", page)
+        for ref in ('href="theme.css"', 'href="style.css"', 'src="app.js"'):
+            self.assertIn(ref, page)
+
+    def test_no_external_urls(self) -> None:
+        for name in ("index.html", "style.css", "app.js", "theme.css"):
+            text = self.read(name)
+            self.assertNotIn("@import", text)
+            urls = set(re.findall(r"https?://[^\s\"'<>)]+", text))
+            self.assertLessEqual(urls, {"http://www.w3.org/2000/svg"}, name)
+
+    def test_theme_css_from_palette(self) -> None:
+        css = self.read("theme.css")
         for name, value in theme.PALETTE.items():
-            self.assertIn(f"--{name}: {value};", self.page)
-        self.assertIn("#7B1E3A", self.page)
+            self.assertIn(f"--{name}: {value};", css)
+        # style.css не задаёт своих hex-цветов — только переменные палитры
+        self.assertIsNone(re.search(r"#[0-9a-fA-F]{3,8}\b", self.read("style.css")))
 
-    def test_embedded_data(self) -> None:
-        m = re.search(r'<script type="application/json" id="graph-data">(.*?)</script>', self.page, re.S)
-        assert m is not None
-        data = json.loads(m.group(1))
+    def test_graph_json(self) -> None:
+        data = json.loads(self.read("graph.json"))
         self.assertEqual(len(data["nodes"]), len(self.g.nodes))
         self.assertEqual(len(data["edges"]), len(self.g.edges))
+        self.assertEqual(data["meta"]["server"], "dir:fixtures")
+        self.assertEqual(data["meta"]["problems"], 4)
+        self.assertEqual(data["meta"]["warnings"], ["<b>warn</b>"])  # экранирует UI (textContent)
         gw = next(n for n in data["nodes"] if n["key"] == "Gateway/prod/public-gw")
         self.assertIn("public-gw", gw["manifest"])
         self.assertNotIn("managedFields", gw["manifest"])
+        self.assertEqual(data["styles"]["Gateway"]["fill"], "var(--blue-300)")
 
-    def test_warnings_escaped(self) -> None:
-        self.assertIn("&lt;b&gt;warn&lt;/b&gt;", self.page)
-        self.assertNotIn("<b>warn</b>", self.page)
+    def test_ui_does_not_use_innerhtml(self) -> None:
+        js = self.read("app.js")
+        self.assertNotIn("innerHTML", js)
+        self.assertNotIn("eval(", js)
+        self.assertIn("graph.json", js)
 
-    def test_script_breakout_escaped(self) -> None:
-        evil = Resource.from_manifest(
-            {
-                "kind": "Service",
-                "metadata": {"name": "x", "namespace": "n", "annotations": {"a": "</script><script>alert(1)</script>"}},
-                "spec": {},
-            }
-        )
+    def test_reexport_overwrites(self) -> None:
         g = Graph()
-        g.add_node(Node(evil.key, evil.kind, evil.namespace, evil.name, resource=evil))
-        page = render_html(g, server="s")
-        self.assertNotIn("alert(1)</script>", page)
-        self.assertEqual(page.count("</script>"), 2)
-        self.assertNotIn("</", safe_json({"a": "</script>"}))
-        self.assertEqual(json.loads(safe_json({"a": "</script>&"})), {"a": "</script>&"})
+        res = Resource.from_manifest({"kind": "Service", "metadata": {"name": "x", "namespace": "n"}, "spec": {}})
+        g.add_node(Node(res.key, res.kind, res.namespace, res.name, resource=res))
+        with tempfile.TemporaryDirectory() as tmp:
+            export_web(self.g, tmp, server="a")
+            export_web(g, tmp, server="b")
+            with open(os.path.join(tmp, "graph.json"), encoding="utf-8") as fh:
+                data = json.load(fh)
+            self.assertEqual(data["meta"]["server"], "b")
+            self.assertEqual(len(data["nodes"]), 1)
+            self.assertFalse([n for n in os.listdir(tmp) if n.startswith(".")])
+
+
+class NginxConfigTest(unittest.TestCase):
+    ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deploy", "nginx")
+
+    def read(self, name: str) -> str:
+        with open(os.path.join(self.ROOT, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_common_rules(self) -> None:
+        conf = self.read("netinspect-common.inc")
+        self.assertIn("Content-Security-Policy", conf)
+        self.assertIn("script-src 'self'", conf)
+        self.assertIn("location = /graph.json", conf)
+        self.assertIn("deny all", conf)
+
+    def test_includes(self) -> None:
+        self.assertIn("include conf.d/netinspect-common.inc;", self.read("netinspect.conf"))
+        self.assertIn("include netinspect-common.inc;", self.read("nginx-local.conf"))
 
 
 class CliTest(unittest.TestCase):
@@ -118,13 +167,14 @@ class CliTest(unittest.TestCase):
         code = cli.main(list(argv), out=out, err=err)
         return code, out.getvalue(), err.getvalue()
 
-    def test_graph_exit_code_and_html(self) -> None:
+    def test_graph_exit_code_and_web_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "out.html")
-            code, out, _ = self.run_cli("graph", "--from-dir", FIXTURES, "-A", "--html", path)
+            path = os.path.join(tmp, "web")
+            code, out, _ = self.run_cli("graph", "--from-dir", FIXTURES, "-A", "--web-dir", path)
             self.assertEqual(code, cli.EXIT_PROBLEMS)
             self.assertNotIn("\x1b[", out)  # StringIO — не терминал
-            self.assertTrue(os.path.getsize(path) > 1000)
+            self.assertTrue(os.path.getsize(os.path.join(path, "graph.json")) > 1000)
+            self.assertTrue(os.path.isfile(os.path.join(path, "index.html")))
 
     def test_graph_clean_subgraph(self) -> None:
         code, out, _ = self.run_cli("graph", "--from-dir", FIXTURES, "--resource", "vs/prod/reviews")

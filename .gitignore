@@ -6,8 +6,8 @@ dist/
 .venv/
 venv/
 .env
-*.html
-!tests/fixtures/*.html
+/web/
+/out/
 .idea/
 .vscode/
 .DS_Store

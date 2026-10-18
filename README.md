@@ -9,7 +9,7 @@ Gateway → VirtualService → DestinationRule
 Route (OpenShift) → Service
 ```
 
-и показывает его деревом в консоли и интерактивным HTML-отчётом. Битые ссылки
+и показывает его деревом в консоли и в веб-интерфейсе, который раздаёт nginx. Битые ссылки
 (несуществующий Gateway или Service, отсутствующий subset в DestinationRule,
 Service без endpoints) подсвечиваются.
 
@@ -19,6 +19,7 @@ Service без endpoints) подсвечиваются.
 - **PyYAML — опционально.** Если он установлен, манифесты показываются в YAML,
   читаются `.yaml`/`.yml` файлы и доступен `get -o yaml`. Без него всё работает
   на JSON, YAML-файлы в каталоге пропускаются с предупреждением.
+- **nginx** — только для веб-интерфейса (любая актуальная версия; root не обязателен).
 
 Запуск без установки, из корня репозитория:
 
@@ -43,7 +44,7 @@ shell. Порядок поиска:
 2. переменная `NETINSPECT_TOKEN`;
 3. интерактивный ввод (`getpass`, без эха).
 
-Токен не пишется в логи, `repr`, тексты ошибок и HTML-отчёт; в отладочном логе
+Токен не пишется в логи, `repr`, тексты ошибок и веб-интерфейс; в отладочном логе
 видна только маска `****` + последние 4 символа.
 
 **Адрес API:** `--server https://api.cluster.example:6443` или `NETINSPECT_SERVER`
@@ -92,7 +93,7 @@ python -m netinspect get dr --from-dir ./manifests -o yaml
 
 ```bash
 # весь граф по namespace
-python -m netinspect graph -n prod -n staging --html report.html
+python -m netinspect graph -n prod -n staging --web-dir /var/www/netinspect
 
 # от хоста: все Gateway, VirtualService и Route, у которых совпадает хост (с учётом wildcard)
 python -m netinspect graph -A --host api.example.com
@@ -120,7 +121,7 @@ Gateway prod/public-gw  [*.example.com:443]  [tls SIMPLE]  [api.example.com:80]
 | `--host H` / `--resource KIND/NS/NAME` | точка входа; без неё — весь граф |
 | `-n NS` (несколько раз) / `-A` | namespace |
 | `--from-dir DIR` | читать манифесты из каталога вместо кластера |
-| `--html FILE` | сохранить HTML-отчёт |
+| `--web-dir DIR` | выгрузить веб-интерфейс для nginx (см. ниже) |
 | `--no-color` | без цветов (также `NO_COLOR=1` или вывод не в терминал) |
 | `--cluster-domain D` | домен кластера, по умолчанию `cluster.local` |
 | `-v` / `-vv` | подробный / отладочный лог |
@@ -133,10 +134,57 @@ Gateway.
 **Коды выхода:** `0` — успешно, проблем нет; `1` — ошибка (подключение, права,
 аргументы); `2` — граф построен, но найдены проблемы (удобно для CI).
 
-### HTML-отчёт
+### Веб-интерфейс (nginx)
 
-Один самодостаточный файл: CSS и JS встроены, нет внешних скриптов, шрифтов и
-CDN — открывается без сети. Возможности:
+`--web-dir DIR` выгружает в каталог статический интерфейс и данные:
+
+| Файл | Что это |
+|---|---|
+| `index.html` | разметка (исходник — `netinspect/ui/static/index.html`) |
+| `style.css` | стили (`netinspect/ui/static/style.css`) |
+| `app.js` | отрисовка графа на SVG, поиск, фильтры, панель (`netinspect/ui/static/app.js`) |
+| `theme.css` | CSS-переменные палитры, генерируется из `netinspect/ui/theme.py` |
+| `graph.json` | данные графа: узлы, связи, манифесты, метаданные отчёта |
+
+Каталог раздаёт nginx. Внешних ресурсов нет (CDN, шрифтов, библиотек), поэтому
+интерфейс работает в закрытой сети. Открыть `index.html` двойным кликом нельзя:
+браузер не даёт загрузить `graph.json` по `file://`, страница подскажет это.
+
+**Системный nginx** (`deploy/nginx/netinspect.conf`, порт 8080, root `/var/www/netinspect`):
+
+```bash
+sudo cp deploy/nginx/netinspect.conf deploy/nginx/netinspect-common.inc /etc/nginx/conf.d/
+sudo mkdir -p /var/www/netinspect && sudo chown "$USER" /var/www/netinspect
+python -m netinspect graph -A --web-dir /var/www/netinspect
+sudo nginx -t && sudo nginx -s reload
+```
+
+Повторный запуск `graph --web-dir` обновляет данные. `graph.json` пишется
+атомарно, поэтому nginx не отдаст полузаписанный файл. Перезагружать nginx не
+нужно — достаточно обновить страницу. Обновление можно поставить в cron.
+
+**Без root** (`deploy/nginx/nginx-local.conf`, 127.0.0.1:8080, каталог `web/` в корне репозитория):
+
+```bash
+python -m netinspect graph -A --web-dir web
+nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf     # Ctrl+C — остановить
+```
+
+Общие правила вынесены в `deploy/nginx/netinspect-common.inc`:
+
+- строгий `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`): в
+  разметке нет inline-скриптов и стилей;
+- `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`;
+- только `GET`/`HEAD`;
+- скрытые файлы закрыты;
+- `Cache-Control: no-cache` — после новой выгрузки браузер сразу берёт свежие данные;
+- gzip для JSON, CSS и JS.
+
+> `graph.json` содержит манифесты ресурсов кластера (Secret не загружаются).
+> Публикуйте интерфейс только во внутренней сети или включите `auth_basic` —
+> заготовка есть в `netinspect.conf`.
+
+Возможности интерфейса:
 
 - колонки по направлению трафика: Gateway/Route → VirtualService → DestinationRule → Service/External → EndpointSlice;
 - клик по узлу — панель с бейджами, проблемами, связанными узлами (кликабельны) и
@@ -151,7 +199,8 @@ Secret-ресурсы не загружаются никогда; из мани�
 ## Работа без кластера (на фикстурах)
 
 ```bash
-python -m netinspect graph --from-dir tests/fixtures -A --html out.html   # код выхода 2
+python -m netinspect graph --from-dir tests/fixtures -A --web-dir web   # код выхода 2
+nginx -p "$PWD" -e stderr -c deploy/nginx/nginx-local.conf      # http://127.0.0.1:8080/
 python -m netinspect get vs --from-dir tests/fixtures
 ```
 
@@ -203,11 +252,13 @@ python -m unittest discover -s tests
 netinspect/
   core/   — подключение (config, client, errors), discovery, access, реестр типов,
             fetcher (ClusterSource / DirectorySource), модели, хосты
-  graph/  — builder (связи), traverse (подграфы), render_text, render_html
-  ui/     — theme.py: палитра, единый источник цветов для HTML и консоли
+  graph/  — builder (связи), traverse (подграфы), render_text, render_web (выгрузка UI)
+  ui/     — theme.py: палитра, единый источник цветов для UI и консоли;
+            static/: index.html, style.css, app.js
+deploy/nginx/ — конфигурация nginx для веб-интерфейса
 ```
 
-`core` и `graph` не зависят от CLI и HTML. Новый тип ресурса добавляется одной
+`core` и `graph` не зависят от CLI и веб-интерфейса. Новый тип ресурса добавляется одной
 записью в `core/resources.py` (`REGISTRY`) и методом-линкером в `graph/builder.py`.
 
 ## Ограничения текущей версии
@@ -228,5 +279,5 @@ netinspect/
    всё нужное — проверки лягут отдельным модулем поверх `Graph`.
 2. **Каталог диагностических команд:** для узла с проблемой — готовые команды
    `oc`/`istioctl` (`istioctl x describe`, `proxy-config routes`, `oc get endpointslices -l ...`)
-   в консоли и в панели HTML-отчёта.
+   в консоли и в панели веб-интерфейса.
 3. Учёт `ServiceEntry`, `exportTo`, `delegate`, `Sidecar`.

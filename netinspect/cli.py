@@ -19,7 +19,7 @@ from netinspect.core.hosts import DEFAULT_DOMAIN, normalize, to_fqdn
 from netinspect.core.model import Resource
 from netinspect.core.resources import resolve_kind
 from netinspect.graph.builder import build_graph
-from netinspect.graph.render_html import render_html
+from netinspect.graph.render_web import export_web
 from netinspect.graph.render_text import render_summary, render_tree
 from netinspect.graph.traverse import host_subgraph, parse_resource_ref, subgraph
 from netinspect.ui.theme import Ansi, color_enabled
@@ -95,7 +95,8 @@ def build_parser() -> argparse.ArgumentParser:
     entry.add_argument("--resource", help="точка входа: KIND/NS/NAME, например vs/prod/reviews")
     _add_ns_args(p)
     p.add_argument("--from-dir", metavar="DIR", help="читать манифесты из каталога вместо кластера")
-    p.add_argument("--html", metavar="FILE", help="сохранить HTML-отчёт")
+    p.add_argument("--web-dir", metavar="DIR",
+                   help="выгрузить веб-интерфейс (index.html, style.css, app.js, graph.json) для nginx")
     p.add_argument("--no-color", action="store_true", help="без ANSI-цветов")
     p.add_argument("--cluster-domain", default=DEFAULT_DOMAIN, help="домен кластера (cluster.local)")
     _add_connection_args(p)
@@ -237,7 +238,7 @@ def cmd_get(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
 
 
 def cmd_graph(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    """Построить граф, вывести дерево и (опционально) HTML."""
+    """Построить граф, вывести дерево и (опционально) выгрузить веб-интерфейс."""
     source = _source(args, err)
     resources = source.load(default_kinds(), _namespaces(args))
     full = build_graph(resources, args.cluster_domain)
@@ -262,11 +263,9 @@ def cmd_graph(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         print("ресурсы не найдены", file=out)
     print(render_summary(graph, source.warnings, ansi), file=out)
 
-    if args.html:
-        page = render_html(graph, server=source.description, warnings=source.warnings)
-        with open(args.html, "w", encoding="utf-8") as fh:
-            fh.write(page)
-        print(f"HTML-отчёт: {args.html}", file=out)
+    if args.web_dir:
+        export_web(graph, args.web_dir, server=source.description, warnings=source.warnings)
+        print(f"Веб-интерфейс: {args.web_dir} (раздайте каталог через nginx, см. deploy/nginx)", file=out)
     return EXIT_PROBLEMS if graph.problem_nodes() else EXIT_OK
 
 
